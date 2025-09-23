@@ -1,0 +1,67 @@
+:root {
+  /* Цветове от логото (можеш да ги фино нагласиш) */
+  --brand-red:   #e0252a;   /* червеното от триъгълника */
+  --brand-blue:  #1f2f8f;   /* тъмното синьо */
+  --brand-silver:#c9ced8;   /* сребристо/сиво за линии */
+  --brand-white: #ffffff;
+
+  /* Семантични токени */
+  --color-bg:        #f6f7fb;      /* лек фон */
+  --color-surface:   #ffffff;      /* карти/модали */
+  --color-border:    #e5e7eb;      /* граници */
+  --color-text:      #0f172a;      /* основен текст */
+
+  --color-primary:   var(--brand-blue);
+  --color-primary-600: #23359b;
+  --color-primary-700: #1b297a;
+
+  --color-accent:    var(--brand-red);
+  --color-accent-600:#c41f24;
+
+  --ring: rgba(31,47,143,0.25);
+}
+
+/* Базов фон + текст */
+html, body {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Карти */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+/* Бутони – използваме съществуващите имена */
+.btn-primary {
+  background: var(--color-primary);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--color-primary-600); }
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text);
+}
+.btn-danger {
+  background: var(--color-accent);
+  color: #fff;
+}
+.btn-danger:hover { background: var(--color-accent-600); }
+
+/* Полета */
+.input {
+  border: 1px solid var(--color-border);
+  background: #fff;
+}
+.input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ring);
+  border-color: var(--color-primary);
+}
+
+/* Малки баджове/тонове, за да паснат визуално */
+.badge-primary { background: var(--color-primary); color: #fff; }
+.badge-accent  { background: var(--color-accent);  color: #fff; }

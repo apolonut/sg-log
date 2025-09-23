@@ -1,0 +1,58 @@
+/* src/styles/index.css */
+
+/* ✅ правилният път към темата */
+@import "../shared/theme.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Унифицирани компоненти за консистентен UI */
+@layer components {
+  .card { @apply bg-white rounded-xl shadow p-4; }
+
+  .table { @apply text-sm min-w-full; }
+
+  .btn { @apply inline-flex items-center justify-center rounded-lg px-3 py-2 transition; }
+
+  /* ✅ ползва фирмените цветове от theme.css */
+  .btn-primary {
+    background: var(--color-primary);
+    color: white;
+    @apply shadow;
+  }
+  .btn-primary:hover {
+    filter: brightness(0.95);
+  }
+
+  .btn-ghost { @apply bg-transparent text-slate-700 hover:bg-slate-100; }
+
+  .input {
+    @apply border rounded-md px-3 py-2 outline-none;
+    border-color: var(--border-color, #e5e7eb);
+  }
+  .input:focus {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 20%, transparent);
+    border-color: var(--color-primary);
+  }
+
+  .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs; }
+  .badge-green  { @apply badge; background: #dcfce7; color: #166534; }  /* ok */
+  .badge-yellow { @apply badge; background: #fef9c3; color: #854d0e; }  /* warn */
+  .badge-red    { @apply badge; background: #fee2e2; color: #991b1b; }  /* danger */
+
+  .toolbar-sticky { @apply sticky top-0 z-40 bg-white/90 backdrop-blur border-b; }
+
+  /* ✅ малки помощници за бранд */
+  .brand-topbar {
+    background: linear-gradient(90deg, var(--color-primary), var(--color-secondary));
+    color: white;
+  }
+  .brand-link {
+    color: var(--color-secondary);
+  }
+  .brand-link:hover {
+    text-decoration: underline;
+    filter: brightness(0.95);
+  }
+}
