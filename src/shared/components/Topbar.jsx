@@ -3,15 +3,21 @@ import React, { useEffect } from "react";
 import GlobalSearch from "./GlobalSearch.jsx";
 import NotificationsBell from "./NotificationsBell.jsx";
 import QuickAddMenu from "./QuickAddMenu.jsx";
+import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 
-export default function Topbar({ title = "", onHamburger, notifications }) {
-  // Нормализатор за събития „quick-add“ → {kind} → {type}
+export default function Topbar({ title = "", onHamburger }) {
+  // Нотификации от localStorage
+  const [notifications] = useLocalStorage("notifications", []);
+
+  // Нормализатор за quick-add
   useEffect(() => {
     const normalizeQuickAdd = (e) => {
       const d = e?.detail || {};
       if (d.type) return;
       if (d.kind) {
-        window.dispatchEvent(new CustomEvent("quick-add", { detail: { type: String(d.kind) } }));
+        window.dispatchEvent(
+          new CustomEvent("quick-add", { detail: { type: String(d.kind) } })
+        );
       }
     };
     window.addEventListener("quick-add", normalizeQuickAdd);
@@ -20,18 +26,21 @@ export default function Topbar({ title = "", onHamburger, notifications }) {
 
   const handleQuickAdd = (type) => {
     if (!type) return;
-    window.dispatchEvent(new CustomEvent("quick-add", { detail: { type: String(type) } }));
+    window.dispatchEvent(
+      new CustomEvent("quick-add", { detail: { type: String(type) } })
+    );
   };
 
   return (
     <div
       className="sticky top-0 z-20 border-b"
       style={{
-        background: "var(--brand-600, rgb(79 70 229))",
-        color: "var(--brand-on, white)",
+        background: "var(--brand-600, rgb(79 70 229))",   // фон от theme.css
+        color: "var(--brand-on, white)",                 // текст върху brand фон
       }}
     >
       <div className="h-16 flex items-center gap-3 px-3 md:px-6">
+        {/* Mobile hamburger */}
         <button
           className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg hover:bg-white/10"
           onClick={onHamburger}
@@ -42,11 +51,18 @@ export default function Topbar({ title = "", onHamburger, notifications }) {
           </svg>
         </button>
 
-        <h1 className="text-lg md:text-xl font-semibold tracking-tight">{title}</h1>
+        {/* Само заглавие */}
+        <h1 className="text-lg md:text-xl font-semibold tracking-tight">
+          {title}
+        </h1>
 
         <div className="ml-auto flex items-center gap-2">
           <GlobalSearch />
-          <NotificationsBell items={notifications} />
+          {/* Камбанка със същите brand цветове */}
+          <NotificationsBell
+            items={notifications}
+            className="text-[var(--brand-on,white)] hover:text-slate-100"
+          />
           <QuickAddMenu onQuickAdd={handleQuickAdd} />
         </div>
       </div>
