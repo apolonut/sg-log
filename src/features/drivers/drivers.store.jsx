@@ -1,8 +1,6 @@
 // src/features/drivers/drivers.store.jsx
-import React, { createContext, useContext, useEffect, useCallback } from "react";
-import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
-import { seedDrivers } from "./seed";
-import { db } from "@/firebase";
+import React, { createContext, useContext, useEffect, useCallback, useState } from "react";
+import { db } from "@/firebase.js";
 import {
   collection,
   addDoc,
@@ -19,10 +17,10 @@ const DriversCtx = createContext(null);
 const COL = "drivers";
 
 export function DriversProvider({ children }) {
-  // Държим стария localStorage ключ за съвместимост с друг код
-  const [drivers, setDrivers] = useLocalStorage("drivers", seedDrivers);
+  // Държим състоянието само в React; данните идват live от Firestore
+  const [drivers, setDrivers] = useState([]);
 
-  // Realtime четене от Firestore → поддържа и localStorage актуален
+  // Realtime четене от Firestore
   useEffect(() => {
     const q = query(collection(db, COL), orderBy("name", "asc"));
     const unsub = onSnapshot(
@@ -36,7 +34,6 @@ export function DriversProvider({ children }) {
       }
     );
     return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Създай или обнови драйвер във Firestore
@@ -48,11 +45,9 @@ export function DriversProvider({ children }) {
     };
 
     if (data.id) {
-      // update
       await updateDoc(doc(db, COL, data.id), payload);
       return data.id;
     } else {
-      // create
       const res = await addDoc(collection(db, COL), {
         ...payload,
         createdAt: serverTimestamp(),
@@ -61,7 +56,7 @@ export function DriversProvider({ children }) {
     }
   }, []);
 
-  // (по желание) изтриване – не чупи API-то, просто добавяме функция
+  // Изтриване
   const remove = useCallback(async (id) => {
     if (!id) return;
     await deleteDoc(doc(db, COL, id));
@@ -69,8 +64,8 @@ export function DriversProvider({ children }) {
 
   const api = {
     list: drivers, // съвместимо с текущия ти код
-    upsert,        // същото име/подпис
-    remove,        // допълнително удобство
+    upsert,
+    remove,
   };
 
   return <DriversCtx.Provider value={api}>{children}</DriversCtx.Provider>;
