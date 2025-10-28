@@ -3,7 +3,7 @@ import React, { useMemo, useState } from "react";
 import EditTruckModal from "./EditTruckModal.jsx";
 import EditTankerModal from "./EditTankerModal.jsx";
 import { checkExpiry } from "@/shared/utils/dates";
-import { useTehnika } from "./tehnika.store.js";
+import { useTehnika } from "./tehnika.store.jsx";
 
 // Малък бейдж за статус по дата
 const StatusBadge = ({ date }) => {
