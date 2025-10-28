@@ -1,6 +1,9 @@
 // src/features/dashboard/DashboardTab.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useLocalStorage } from "../../shared/hooks/useLocalStorage";
+import { useDrivers } from "@/features/drivers/drivers.store.jsx";
+import { useTehnika } from "@/features/tehnika/tehnika.store.jsx";
+import { useSettings } from "@/features/settings/settings.store.jsx";
+import { useSchedules } from "@/features/schedule/schedule.store.jsx";
 import { parseBGDate, checkExpiry } from "../../shared/utils/dates";
 import EditScheduleModal from "../schedule/EditScheduleModal.jsx";
 import EditDriverModal   from "../drivers/EditDriverModal.jsx";
@@ -170,13 +173,12 @@ const PastTripsCard = ({ schedules }) => {
 
 export default function DashboardTab() {
   // Данни
-  const [drivers,   setDrivers]   = useLocalStorage("drivers",   []);
-  const [trucks,    setTrucks]    = useLocalStorage("trucks",    []); // {adrExpiry}
-  const [tankers,   setTankers]   = useLocalStorage("tankers",   []);
-  const [schedules, setSchedules] = useLocalStorage("schedules", []);
-  const [archived]                = useLocalStorage("schedules_archived", []); // ⬅ ново: за Историята
-  const [companies, setCompanies] = useLocalStorage("clients",   []);
-  const [routes,    setRoutes]    = useLocalStorage("routes",    []);
+  const { list: drivers } = useDrivers() || { list: [] };
+  const { trucks, tankers } = useTehnika() || { trucks: [], tankers: [] };
+  const S = useSchedules();
+  const schedules = S?.list || [];
+  const archived  = S?.archived || [];
+  const { clients: companies, routes } = useSettings() || { clients: [], routes: [] };
 
   // Модали
   const [modals, setModals] = useState({

@@ -2,7 +2,7 @@
 import React, { useMemo } from "react";
 import { statusBadge, legLabel } from "./schedule.helpers.js";
 import { parseBGDate, isPastBGDate } from "../../shared/utils/dates.jsx";
-import { useLocalStorage } from "../../shared/hooks/useLocalStorage";
+import { useDrivers } from "@/features/drivers/drivers.store.jsx";
 import { useSchedules } from "./schedule.store.jsx";
 
 // helper: стабилно копиране в клипборда
@@ -36,7 +36,7 @@ const IconBtn = ({ title, onClick, children, disabled }) => (
 
 export default function ScheduleListView({ items, onEdit, onAdd }) {
   const S = useSchedules(); // за remove/add/archive
-  const [drivers] = useLocalStorage("drivers", []);
+  const { list: drivers } = useDrivers() || { list: [] };
   const driverMap = useMemo(() => {
     const m = new Map();
     drivers.forEach((d) => m.set(d.name, d));

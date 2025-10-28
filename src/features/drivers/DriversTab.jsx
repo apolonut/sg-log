@@ -2,7 +2,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Tabs from "@/shared/components/Tabs.jsx";
 // ⬇️ махаме useLocalStorage за drivers; оставяме го за други неща
-import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
+import { useSchedules } from "@/features/schedule/schedule.store.jsx";
+import { useSettings } from "@/features/settings/settings.store.jsx";
 import { parseBGDate, checkExpiry } from "@/shared/utils/dates";
 import EditDriverModal from "@/features/drivers/EditDriverModal.jsx";
 import { useDrivers } from "./drivers.store.jsx"; // ⬅️ НОВО
@@ -110,8 +111,9 @@ export default function DriversTab() {
   const { list: drivers, upsert, remove } = useDrivers();
 
   // останалите засега идват от localStorage (ще ги мигрираме по-късно)
-  const [schedules] = useLocalStorage("schedules", []);
-  const [subcontractors] = useLocalStorage("subcontractors", []); // за „копирай фирма“
+  const S = useSchedules();
+  const { subcontractors } = useSettings();
+  const schedules = S?.list || [];
 
   const [active, setActive] = useState("sg");
   const [q, setQ] = useState("");

@@ -1,13 +1,14 @@
 import React from "react";
 import Modal from "../../shared/components/Modal.jsx";
 import { toInputDate, fromInputDate } from "../../shared/utils/dates";
-import { useLocalStorage } from "../../shared/hooks/useLocalStorage";
+import { useSettings } from "@/features/settings/settings.store.jsx";
+import { useTehnika } from "@/features/tehnika/tehnika.store.jsx";
 
 export default function EditDriverModal({ open, onClose, value, onSave }) {
   const isEdit = !!value?.id;
-  const [subcontractors] = useLocalStorage("subcontractors", []);
-  const [trucks] = useLocalStorage("trucks", []);
-  const [tankers] = useLocalStorage("tankers", []);
+  const { subcontractors } = useSettings();
+  const { trucks, tankers } = useTehnika();
+  
 
   return (
     <Modal open={open} onClose={onClose}>

@@ -1,10 +1,10 @@
 // src/features/schedule/QuickAddRelation.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useLocalStorage } from "../../shared/hooks/useLocalStorage";
+import { useDrivers } from "@/features/drivers/drivers.store.jsx";
+import { useSettings } from "@/features/settings/settings.store.jsx";
 import { useSchedules } from "./schedule.store.jsx";
 import { toInputDate, toBG } from "../../shared/utils/dates.jsx";
 import { colorForDriver, colorForClient } from "./schedule.colors.js";
-import { nextKmdForDate } from "../../shared/utils/kmd.js";
 
 // ==== малки утилити ====
 const todayISO = () => toInputDate(new Date());
@@ -72,10 +72,9 @@ function AutoComplete({
 export default function QuickAddRelation() {
   const S = useSchedules(); // вече пише към Firestore (realtime)
 
-  // данни от провайдърите (идват realtime във localStorage хука)
-  const [drivers] = useLocalStorage("drivers", []);
-  const [clients] = useLocalStorage("clients", []);
-  const [routes]  = useLocalStorage("routes", []);
+  // данни от провайдърите
+  const { list: drivers } = useDrivers() || { list: [] };
+  const { clients, routes } = useSettings() || { clients: [], routes: [] };
 
   // форма: ПРАВ
   const [driver, setDriver] = useState("");
@@ -89,7 +88,7 @@ export default function QuickAddRelation() {
   // форма: ОБРАТЕН
   const [showReverse, setShowReverse] = useState(false);
   const [routeR, setRouteR] = useState("");
-  const [startR, setStartR] = useState(addDaysISO(todayISO(), 1));
+  the [startR, setStartR] = useState(addDaysISO(todayISO(), 1));
   const [endR, setEndR]     = useState(addDaysISO(todayISO(), 2));
   const [notesR, setNotesR] = useState("");
 
@@ -109,11 +108,12 @@ export default function QuickAddRelation() {
   useEffect(() => { if (route  && start)  setEnd (suggestEndByRoute(route,  start));  }, [route,  start]);
   useEffect(() => { if (routeR && startR) setEndR(suggestEndByRoute(routeR, startR)); }, [routeR, startR]);
 
-  // КМД – следващ по ГОДИНА (на база стартова дата)
+  // КМД – взимаме следващия № през store (preview, без commit)
   const handleNextKmd = () => {
-    if (!start) return;
+    if (!start || !S?.getNextKmd) return;
     const bg = toBG(new Date(start));    // dd.mm.yyyy
-    setKomDir(nextKmdForDate(bg));       // напр. "223/17.09"
+    const preview = S.getNextKmd({ dateStr: bg, commit: false });
+    setKomDir(preview || "");
   };
 
   const resetForm = () => {
@@ -125,9 +125,17 @@ export default function QuickAddRelation() {
 
   const handleAdd = async (e) => {
     e.preventDefault();
+    if (!S?.add) return;
     if (!driver || !client || !route || !start || !end) return;
 
     const driverCompany = (drivers.find((d) => d.name === driver)?.company) || "";
+
+    // ако няма въведен № → вземи и КОМИТНИ следващия
+    let komForForward = komDir?.trim();
+    if (!komForForward && S?.getNextKmd) {
+      const bg = toBG(new Date(start));
+      komForForward = S.getNextKmd({ dateStr: bg, commit: true }) || "";
+    }
 
     // ПРАВ
     await S.add({
@@ -138,13 +146,18 @@ export default function QuickAddRelation() {
       date: toBG(new Date(start)),
       unloadDate: toBG(new Date(end)),
       notes,
-      komandirovka: komDir || "",
+      komandirovka: komForForward,
       status: "Планирано",
       leg: "Прав",
     });
 
     // ОБРАТЕН (ако е активиран)
     if (showReverse && routeR && startR && endR) {
+      let komForReverse = "";
+      if (S?.getNextKmd) {
+        const bgR = toBG(new Date(startR));
+        komForReverse = S.getNextKmd({ dateStr: bgR, commit: true }) || "";
+      }
       await S.add({
         driver,
         driverCompany,
@@ -153,7 +166,7 @@ export default function QuickAddRelation() {
         date: toBG(new Date(startR)),
         unloadDate: toBG(new Date(endR)),
         notes: notesR,
-        komandirovka: "",
+        komandirovka: komForReverse,
         status: "Планирано",
         leg: "Обратен",
       });

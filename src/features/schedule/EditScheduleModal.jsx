@@ -2,9 +2,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Modal from "../../shared/components/Modal.jsx";
 import { useSchedules } from "./schedule.store.jsx";
-import { useLocalStorage } from "../../shared/hooks/useLocalStorage";
+import { useDrivers } from "@/features/drivers/drivers.store.jsx";
+import { useSettings } from "@/features/settings/settings.store.jsx";
 import { toInputDate, fromInputDate } from "../../shared/utils/dates.jsx";
-import { nextKmdForDate } from "../../shared/utils/kmd.js";
 
 // безопасно BG -> ISO за <input type="date">
 const safeToInput = (bg) => (bg && typeof bg === "string" ? toInputDate(bg) : "");
@@ -34,9 +34,8 @@ export default function EditScheduleModal({
   const { add, update, remove, getNextKmd } = S;
 
   // справочници за autocomplete
-  const [drivers] = useLocalStorage("drivers", []);
-  const [clients] = useLocalStorage("clients", []);
-  const [routes]  = useLocalStorage("routes", []);
+  const { list: drivers } = useDrivers() || { list: [] };
+  const { clients, routes } = useSettings() || { clients: [], routes: [] };
 
   const driverNames = useMemo(
     () => drivers.map(d => d.name).filter(Boolean).sort((a,b)=>a.localeCompare(b,"bg")),
@@ -77,9 +76,19 @@ export default function EditScheduleModal({
 
   const isEdit = !!id;
 
-  // запазване
-  const handleSave = () => {
+  // запазване (с commit на КМД, ако липсва)
+  const handleSave = async () => {
     if (!company.trim() || !route.trim()) return;
+
+    // изчисляваме driverCompany
+    const driverCompany = driver ? (drivers.find(d => d.name === driver)?.company || "") : "";
+
+    // ако няма въведен № → вземи и КОМИТНИ следващия (годишен) според началната дата
+    let kmd = (komandirovka || "").trim();
+    if (!kmd && getNextKmd) {
+      const dateStrBG = dateISO ? fromInputDate(dateISO) : "";
+      kmd = getNextKmd({ dateStr: dateStrBG, commit: true }) || "";
+    }
 
     const payload = {
       id: id || undefined,
@@ -89,27 +98,28 @@ export default function EditScheduleModal({
       leg,
       date: dateISO ? fromInputDate(dateISO) : "",
       unloadDate: unloadISO ? fromInputDate(unloadISO) : "",
-      komandirovka: (komandirovka || "").trim(),
+      komandirovka: kmd,
       notes: (notes || "").trim(),
+      driverCompany,
     };
 
     if (isEdit) {
-      update(id, payload);
+      await update(id, payload);
     } else {
-      add(payload);
+      await add(payload);
     }
     onClose?.();
   };
 
   // изтриване
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!isEdit) return;
-    remove(id);
+    await remove(id);
     onClose?.();
   };
 
   // дублиране: релация+дати; без шофьор, № и бележки
-  const handleDuplicate = () => {
+  const handleDuplicate = async () => {
     const payload = {
       company: (company || "").trim(),
       route: (route || "").trim(),
@@ -120,8 +130,9 @@ export default function EditScheduleModal({
       komandirovka: "",
       notes: "",
       status: value?.status || "Планирано",
+      driverCompany: "",
     };
-    add(payload);
+    await add(payload);
   };
 
   // копиране на товар
@@ -137,18 +148,12 @@ export default function EditScheduleModal({
     await copyText(txt);
   };
 
-  // следващ командировъчен № (годишен брояч)
+  // „Следв. №“ — показва preview (без commit). Истинският commit става при Save, ако полето е празно.
   const handleNextKmd = () => {
-    const dateStr = dateISO ? fromInputDate(dateISO) : ""; // BG dd.mm.yyyy
-    if (getNextKmd) {
-      // ако store поддържа брояча – ползвай него
-      const next = getNextKmd({ dateStr, commit: true });
-      setKmd(next);
-    } else {
-      // иначе – локалният годишен брояч
-      const next = nextKmdForDate(dateStr);
-      setKmd(next);
-    }
+    if (!getNextKmd) return;
+    const dateStrBG = dateISO ? fromInputDate(dateISO) : "";
+    const preview = getNextKmd({ dateStr: dateStrBG, commit: false });
+    if (preview) setKmd(preview);
   };
 
   if (!open) return null;
