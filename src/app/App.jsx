@@ -15,6 +15,9 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
+// ⬇️ НОВО: обвиваме приложението с доставчика за шофьори
+import { DriversProvider } from "@/features/drivers/drivers.store.jsx";
+
 // Покажи/скрий временното debug табло (смени на false, когато не ти трябва)
 const SHOW_DEBUG = true;
 
@@ -71,7 +74,6 @@ function DebugBanner() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUid(u?.uid || null);
-      // Полезно и в конзолата:
       console.log("[SG] projectId =", projectId);
       console.log("[SG] apiKey(6) =", apiKey6);
       console.log("[SG] auth.uid =", u?.uid);
@@ -105,7 +107,7 @@ export default function App() {
     const onNav = (e) => {
       const tab = e?.detail?.tab;
       if (!tab) return;
-      setActive(tab); // напр. "schedule"
+      setActive(tab);
     };
     window.addEventListener("app:navigate", onNav);
     return () => window.removeEventListener("app:navigate", onNav);
@@ -125,7 +127,10 @@ export default function App() {
             <SyncProbe />
           </>
         )}
-        <Routes active={active} />
+        {/* ⬇️ ТУК вече обвиваме всички екрани */}
+        <DriversProvider>
+          <Routes active={active} />
+        </DriversProvider>
       </div>
     </Shell>
   );

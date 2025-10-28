@@ -1,8 +1,11 @@
+// src/features/drivers/DriversTab.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import Tabs from "@/shared/components/Tabs.jsx";
+// ⬇️ махаме useLocalStorage за drivers; оставяме го за други неща
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 import { parseBGDate, checkExpiry } from "@/shared/utils/dates";
 import EditDriverModal from "@/features/drivers/EditDriverModal.jsx";
+import { useDrivers } from "./drivers.store.jsx"; // ⬅️ НОВО
 
 // SG списък (маркираме автоматично)
 const SG_NAMES = [
@@ -103,28 +106,20 @@ function DriverRow({ d, busy, onEdit, onCopyDriver, onCopyCompany }) {
 }
 
 export default function DriversTab() {
-  const [drivers, setDrivers] = useLocalStorage("drivers", []);
+  // ⬇️ ДАННИТЕ ЗА ШОФЬОРИ ВЕЧЕ ИДВАТ ОТ FIRESTORE ПРЕЗ CONTEXT
+  const { list: drivers, upsert, remove } = useDrivers();
+
+  // останалите засега идват от localStorage (ще ги мигрираме по-късно)
   const [schedules] = useLocalStorage("schedules", []);
   const [subcontractors] = useLocalStorage("subcontractors", []); // за „копирай фирма“
+
   const [active, setActive] = useState("sg");
   const [q, setQ] = useState("");
-
-  // toast
   const [toast, setToast] = useState("");
 
-  // еднократна миграция → маркира SG шофьорите
+  // еднократна маркировка кой е SG (само върху локалното копие; реалното upsert е при Save)
   useEffect(() => {
-    let changed = false;
-    const next = drivers.map((d) => {
-      if (typeof d.isOwn === "boolean") return d;
-      if (SG_NAMES.includes(d.name)) {
-        changed = true;
-        return { ...d, isOwn: true };
-      }
-      return { ...d, isOwn: false };
-    });
-    if (changed) setDrivers(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // няма setDrivers тук – списъкът идва от Firestore
   }, []);
 
   const today = useMemo(() => {
@@ -142,13 +137,13 @@ export default function DriversTab() {
 
   const matches = (d) =>
     !q ||
-    d.name.toLowerCase().includes(q.toLowerCase()) ||
+    d.name?.toLowerCase().includes(q.toLowerCase()) ||
     (d.company || "").toLowerCase().includes(q.toLowerCase()) ||
     (d.tractor || "").toLowerCase().includes(q.toLowerCase()) ||
     (d.tanker || "").toLowerCase().includes(q.toLowerCase());
 
-  const sgDrivers   = useMemo(() => drivers.filter((d) => d.isOwn && matches(d)), [drivers, q]);
-  const subDrivers  = useMemo(() => drivers.filter((d) => !d.isOwn && matches(d)), [drivers, q]);
+  const sgDrivers   = useMemo(() => (drivers || []).filter((d) => d.isOwn && matches(d)), [drivers, q]);
+  const subDrivers  = useMemo(() => (drivers || []).filter((d) => !d.isOwn && matches(d)), [drivers, q]);
 
   const sgBusy   = useMemo(() => sgDrivers.filter((d) => isBusy(d.name)).length, [sgDrivers, schedules]);
   const sgFree   = sgDrivers.length - sgBusy;
@@ -204,11 +199,25 @@ export default function DriversTab() {
   const openModal  = (value = null) => setModal({ open: true, value });
   const closeModal = () => setModal({ open: false, value: null });
 
-  const upsertDriver = (item) =>
-    setDrivers((prev) => {
-      if (item.id && prev.some((x) => x.id === item.id)) return prev.map((x) => (x.id === item.id ? { ...x, ...item } : x));
-      return [{ id: `${Date.now()}${Math.random().toString(36).slice(2)}`, ...item }, ...prev];
+  // ⬇️ ЗАМЯНА: вече записваме в Firestore чрез upsert(); списъкът ще се обнови от onSnapshot
+  const upsertDriver = async (data) => {
+    const isOwn = SG_NAMES.includes(data.name)
+      ? true
+      : (typeof data.isOwn === "boolean" ? data.isOwn : false);
+
+    await upsert({
+      ...(data.id ? { id: data.id } : {}),
+      name: data.name || "",
+      phone: data.contact || data.phone || "",
+      company: data.company || "",
+      egn: data.egn || "",
+      tractor: data.tractor || "",
+      tanker: data.tanker || "",
+      driverCardExpiry: data.driverCardExpiry || "",
+      adrExpiry: data.adrExpiry || "",
+      isOwn,
     });
+  };
 
   return (
     <>
@@ -324,10 +333,9 @@ export default function DriversTab() {
         open={modal.open}
         value={modal.value}
         onClose={closeModal}
-        onSave={(data) => {
-          const isOwn = SG_NAMES.includes(data.name) ? true : (typeof data.isOwn === "boolean" ? data.isOwn : false);
-          upsertDriver({ ...data, isOwn });
-          closeModal();
+        onSave={async (data) => {
+          await upsertDriver(data); // ⬅️ запис в Firestore
+          closeModal();            // списъкът ще се обнови автоматично от onSnapshot
         }}
       />
 
