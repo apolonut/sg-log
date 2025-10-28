@@ -1,9 +1,9 @@
 // src/features/tehnika/TehnikaTab.jsx
 import React, { useMemo, useState } from "react";
-import { useLocalStorage } from "../../shared/hooks/useLocalStorage";
 import EditTruckModal from "./EditTruckModal.jsx";
 import EditTankerModal from "./EditTankerModal.jsx";
 import { checkExpiry } from "../../shared/utils/dates";
+import { useTehnika } from "./tehnika.store.js"; // ⬅️ важен импорт: четем/пишем през Firestore store
 
 // Малък бейдж за статус по дата
 const StatusBadge = ({ date }) => {
@@ -99,68 +99,59 @@ function Table({ title, items, onEdit, dense = true }) {
 }
 
 export default function TehnikaTab() {
-  const [trucks, setTrucks]   = useLocalStorage("trucks", []);
-  const [tankers, setTankers] = useLocalStorage("tankers", []);
+  // ⬇️ Четем директно от Firestore store-а (който синхронизира и localStorage за съвместимост)
+  const {
+    trucks,
+    tankers,
+    upsertTruck,
+    upsertTanker,
+    removeTruck,
+    removeTanker,
+  } = useTehnika();
 
   const [modal, setModal] = useState({ open: false, value: null, kind: "truck" }); // "truck" | "tanker"
-
-  // Гарантиране на id за стари записи (преди да отворим модала)
-  const ensureWithId = (item, setArr) => {
-    if (item?.id) return item;
-    const withId = { ...item, id: `${Date.now()}${Math.random().toString(36).slice(2)}` };
-    setArr(prev => {
-      const idx = prev.findIndex(x => x.number === item.number);
-      if (idx >= 0) {
-        const clone = prev.slice();
-        clone[idx] = { ...withId };
-        return clone;
-      }
-      return [withId, ...prev];
-    });
-    return withId;
-  };
 
   // Нов запис (празни полета)
   const openNew = (kind) => setModal({ open: true, value: null, kind });
 
-  // Редакция – подсигуряваме id + подаваме type в value
-  const openEditTruck = (value) => {
-    const v = ensureWithId(value, setTrucks);
-    setModal({ open: true, value: { ...v, type: "truck" }, kind: "truck" });
-  };
-  const openEditTanker = (value) => {
-    const v = ensureWithId(value, setTankers);
-    setModal({ open: true, value: { ...v, type: "tanker" }, kind: "tanker" });
-  };
+  // Редакция – подаваме директно записа от Firestore
+  const openEditTruck = (value)  => setModal({ open: true, value: { ...value, type: "truck" },  kind: "truck"  });
+  const openEditTanker = (value) => setModal({ open: true, value: { ...value, type: "tanker" }, kind: "tanker" });
 
   const close = () => setModal({ open: false, value: null, kind: "truck" });
 
-  // upsert
-  const upsert = (setArr) => (item) =>
-    setArr(prev => {
-      if (item.id && prev.some(x => x.id === item.id)) {
-        return prev.map(x => (x.id === item.id ? { ...x, ...item } : x));
-      }
-      return [{ id: `${Date.now()}${Math.random().toString(36).slice(2)}`, ...item }, ...prev];
-    });
+  // Нормализация на полетата от модалите → към имената, които пазим в store/Firestore
+  const normalizePayload = (data, kind, keepId) => {
+    const id = keepId ? (data?.id || modal.value?.id) : undefined;
+    return {
+      ...(id ? { id } : {}),
+      type: kind,
+      number: (data.number || "").trim(),
+      // съвместимост: приемаме и стари имена от формата
+      insuranceExpiry: data.insuranceExpiry || data.goExpiry || "",
+      inspectionExpiry: data.inspectionExpiry || data.techExpiry || "",
+      adrExpiry: data.adrExpiry || "",
+      brand: data.brand || "",
+      model: data.model || "",
+      year: data.year || "",
+      vin: data.vin || "",
+      notes: data.notes || "",
+    };
+  };
 
-  const upsertTruck  = upsert(setTrucks);
-  const upsertTanker = upsert(setTankers);
-
-  // Save/Delete
-  const handleSave = (data) => {
+  // Save/Delete → минават през Firestore store-а
+  const handleSave = async (data) => {
     const kind = modal.kind || data?.type || "truck";
-    // ако редактираме, пазим съществуващото id
-    const payload = { ...(modal.value?.id ? { id: modal.value.id } : {}), ...data, type: kind };
-    if (kind === "tanker") upsertTanker(payload);
-    else                   upsertTruck(payload);
+    const payload = normalizePayload(data, kind, /*keepId*/ true);
+    if (kind === "tanker") await upsertTanker(payload);
+    else                   await upsertTruck(payload);
     close();
   };
 
-  const handleDelete = (id, type) => {
+  const handleDelete = async (id, type) => {
     if (!id) return;
-    if (type === "tanker") setTankers(prev => prev.filter(x => x.id !== id));
-    else                   setTrucks(prev => prev.filter(x => x.id !== id));
+    if (type === "tanker") await removeTanker(id);
+    else                   await removeTruck(id);
     close();
   };
 
