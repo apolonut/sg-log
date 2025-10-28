@@ -98,10 +98,14 @@ function Table({ title, items, onEdit, dense = true }) {
 }
 
 export default function TehnikaTab() {
+  // 🔗 Взимаме live данните и CRUD от Firestore store-а
   const {
-    trucks, tankers,
-    upsertTruck, upsertTanker,
-    removeTruck, removeTanker,
+    trucks,
+    tankers,
+    upsertTruck,
+    upsertTanker,
+    removeTruck,
+    removeTanker,
   } = useTehnika();
 
   const [modal, setModal] = useState({ open: false, value: null, kind: "truck" }); // "truck" | "tanker"
@@ -109,52 +113,32 @@ export default function TehnikaTab() {
   // Нов запис (празни полета)
   const openNew = (kind) => setModal({ open: true, value: null, kind });
 
-  // Редакция – подаваме type в value (само за удобство на модалите)
-  const openEditTruck = (value) => setModal({ open: true, value: { ...value, type: "truck" },  kind: "truck"  });
-  const openEditTanker = (value) => setModal({ open: true, value: { ...value, type: "tanker" }, kind: "tanker" });
+  // Редакция – просто подаваме текущата стойност
+  const openEditTruck = (value) => {
+    setModal({ open: true, value: { ...value, type: "truck" }, kind: "truck" });
+  };
+  const openEditTanker = (value) => {
+    setModal({ open: true, value: { ...value, type: "tanker" }, kind: "tanker" });
+  };
 
   const close = () => setModal({ open: false, value: null, kind: "truck" });
 
-  // Save/Delete → МИНАВАТ ПРЕЗ FIRESTORE CRUD
+  // Save/Delete → Firestore
   const handleSave = async (data) => {
     const kind = modal.kind || data?.type || "truck";
-    try {
-      if (kind === "tanker") {
-        await upsertTanker({
-          ...(modal.value?.id ? { id: modal.value.id } : {}),
-          number: data.number,
-          insuranceExpiry: data.insuranceExpiry || "",
-          inspectionExpiry: data.inspectionExpiry || "",
-          adrExpiry: data.adrExpiry || "",
-          type: "tanker",
-        });
-      } else {
-        await upsertTruck({
-          ...(modal.value?.id ? { id: modal.value.id } : {}),
-          number: data.number,
-          insuranceExpiry: data.insuranceExpiry || "",
-          inspectionExpiry: data.inspectionExpiry || "",
-          adrExpiry: data.adrExpiry || "",
-          type: "truck",
-        });
-      }
-      close();
-    } catch (e) {
-      console.error("[TehnikaTab] save error:", e);
-      alert("Грешка при запис. Виж конзолата.");
+    if (kind === "tanker") {
+      await upsertTanker(data);
+    } else {
+      await upsertTruck(data);
     }
+    close(); // UI ще се обнови от onSnapshot
   };
 
   const handleDelete = async (id, type) => {
     if (!id) return;
-    try {
-      if (type === "tanker") await removeTanker(id);
-      else                   await removeTruck(id);
-      close();
-    } catch (e) {
-      console.error("[TehnikaTab] delete error:", e);
-      alert("Грешка при изтриване. Виж конзолата.");
-    }
+    if (type === "tanker") await removeTanker(id);
+    else                   await removeTruck(id);
+    close(); // UI ще се обнови от onSnapshot
   };
 
   return (
@@ -190,6 +174,7 @@ export default function TehnikaTab() {
           onClose={close}
           onSave={handleSave}
           onDelete={(id) => handleDelete(id, "truck")}
+          type="truck"
         />
       )}
     </div>
