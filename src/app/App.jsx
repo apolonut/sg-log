@@ -18,6 +18,7 @@ import {
 // ⬇️ ВАЖНО: увиваме приложението с провайдърите
 import { DriversProvider } from "@/features/drivers/drivers.store.jsx";
 import { TehnikaProvider } from "@/features/tehnika/tehnika.store.jsx";
+import { SettingsProvider } from "@/features/settings/settings.store.jsx";
 
 // Покажи/скрий временното debug табло (смени на false, когато не ти трябва)
 const SHOW_DEBUG = true;
@@ -117,6 +118,7 @@ export default function App() {
   return (
     <DriversProvider>
       <TehnikaProvider>
+        <SettingsProvider>
         <Shell
           navItems={NAV}
           activeKey={active}
@@ -133,6 +135,7 @@ export default function App() {
             <Routes active={active} />
           </div>
         </Shell>
+        </SettingsProvider>
       </TehnikaProvider>
     </DriversProvider>
   );

@@ -1,7 +1,7 @@
 // src/features/settings/settings.store.jsx
 import React, { createContext, useContext, useEffect, useMemo, useCallback } from "react";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
-import { db } from "@/firebase";
+import { db } from "@/firebase.js";
 import {
   collection,
   addDoc,
