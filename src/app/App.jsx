@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import Shell from "../shared/components/Shell.jsx";
 import { Routes } from "./routes.jsx";
 
-// ⬇️ Firebase: диагностика + live тест
+// Firebase: диагностика + live тест
 import { app, auth, db } from "@/firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -15,8 +15,9 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
-// ⬇️ НОВО: обвиваме приложението с доставчика за шофьори
+// ⬇️ ВАЖНО: увиваме приложението с провайдърите
 import { DriversProvider } from "@/features/drivers/drivers.store.jsx";
+import { TehnikaProvider } from "@/features/tehnika/tehnika.store.js";
 
 // Покажи/скрий временното debug табло (смени на false, когато не ти трябва)
 const SHOW_DEBUG = true;
@@ -102,7 +103,7 @@ export default function App() {
   const [active, setActive] = useState("dashboard");
   const current = NAV.find((n) => n.key === active);
 
-  // ⬇️ Глобална навигация през CustomEvent
+  // Глобална навигация през CustomEvent
   useEffect(() => {
     const onNav = (e) => {
       const tab = e?.detail?.tab;
@@ -114,24 +115,25 @@ export default function App() {
   }, []);
 
   return (
-    <Shell
-      navItems={NAV}
-      activeKey={active}
-      onNavChange={setActive}
-      title={current?.label || "SG Logistics"}
-    >
-      <div className="p-4 md:p-6 lg:p-8">
-        {SHOW_DEBUG && (
-          <>
-            <DebugBanner />
-            <SyncProbe />
-          </>
-        )}
-        {/* ⬇️ ТУК вече обвиваме всички екрани */}
-        <DriversProvider>
-          <Routes active={active} />
-        </DriversProvider>
-      </div>
-    </Shell>
+    <DriversProvider>
+      <TehnikaProvider>
+        <Shell
+          navItems={NAV}
+          activeKey={active}
+          onNavChange={setActive}
+          title={current?.label || "SG Logistics"}
+        >
+          <div className="p-4 md:p-6 lg:p-8">
+            {SHOW_DEBUG && (
+              <>
+                <DebugBanner />
+                <SyncProbe />
+              </>
+            )}
+            <Routes active={active} />
+          </div>
+        </Shell>
+      </TehnikaProvider>
+    </DriversProvider>
   );
 }
