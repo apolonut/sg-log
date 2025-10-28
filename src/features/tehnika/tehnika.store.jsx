@@ -65,15 +65,24 @@ export function TehnikaProvider({ children }) {
   useEffect(() => {
     let unsub;
     try {
-      unsub = onSnapshot(query(collection(db, COL_TRUCKS), orderBy("number", "asc")), (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setTrucks(rows || []);
-      });
+      const q = query(collection(db, COL_TRUCKS), orderBy("number", "asc"));
+      unsub = onSnapshot(
+        q,
+        (snap) => {
+          const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setTrucks(rows || []);
+        },
+        (err) => console.error("[tehnika.store] trucks onSnapshot error:", err)
+      );
     } catch {
-      unsub = onSnapshot(collection(db, COL_TRUCKS), (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setTrucks(rows || []);
-      });
+      unsub = onSnapshot(
+        collection(db, COL_TRUCKS),
+        (snap) => {
+          const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setTrucks(rows || []);
+        },
+        (err) => console.error("[tehnika.store] trucks onSnapshot error (no orderBy):", err)
+      );
     }
     return () => unsub && unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,15 +92,24 @@ export function TehnikaProvider({ children }) {
   useEffect(() => {
     let unsub;
     try {
-      unsub = onSnapshot(query(collection(db, COL_TANKERS), orderBy("number", "asc")), (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setTankers(rows || []);
-      });
+      const q = query(collection(db, COL_TANKERS), orderBy("number", "asc"));
+      unsub = onSnapshot(
+        q,
+        (snap) => {
+          const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setTankers(rows || []);
+        },
+        (err) => console.error("[tehnika.store] tankers onSnapshot error:", err)
+      );
     } catch {
-      unsub = onSnapshot(collection(db, COL_TANKERS), (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setTankers(rows || []);
-      });
+      unsub = onSnapshot(
+        collection(db, COL_TANKERS),
+        (snap) => {
+          const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setTankers(rows || []);
+        },
+        (err) => console.error("[tehnika.store] tankers onSnapshot error (no orderBy):", err)
+      );
     }
     return () => unsub && unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,7 +117,10 @@ export function TehnikaProvider({ children }) {
 
   // === CRUD: trucks
   const upsertTruck = useCallback(async (item) => {
-    const payload = normalizeItem(item, "truck");
+    const payload = {
+      ...normalizeItem(item, "truck"),
+      updatedAt: serverTimestamp(),
+    };
     if (item.id) {
       await updateDoc(doc(db, COL_TRUCKS, item.id), payload);
       return item.id;
@@ -119,7 +140,10 @@ export function TehnikaProvider({ children }) {
 
   // === CRUD: tankers
   const upsertTanker = useCallback(async (item) => {
-    const payload = normalizeItem(item, "tanker");
+    const payload = {
+      ...normalizeItem(item, "tanker"),
+      updatedAt: serverTimestamp(),
+    };
     if (item.id) {
       await updateDoc(doc(db, COL_TANKERS, item.id), payload);
       return item.id;
