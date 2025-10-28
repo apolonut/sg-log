@@ -2,8 +2,8 @@
 import React, { useMemo, useState } from "react";
 import EditTruckModal from "./EditTruckModal.jsx";
 import EditTankerModal from "./EditTankerModal.jsx";
-import { checkExpiry } from "../../shared/utils/dates";
-import { useTehnika } from "./tehnika.store.js"; // ⬅️ важен импорт: четем/пишем през Firestore store
+import { checkExpiry } from "@/shared/utils/dates";
+import { useTehnika } from "./tehnika.store.js";
 
 // Малък бейдж за статус по дата
 const StatusBadge = ({ date }) => {
@@ -25,7 +25,6 @@ const StatusBadge = ({ date }) => {
 function Table({ title, items, onEdit, dense = true }) {
   const rows = useMemo(() => {
     return (items || []).map((t, i) => {
-      // Уникален и стабилен ключ: предпочитаме id; иначе комбинираме тип/заглавие + номер + индекс
       const kind = t.type || title || "item";
       const key = t.id ? String(t.id) : `${kind}:${t.number || "—"}:${i}`;
       return {
@@ -99,14 +98,10 @@ function Table({ title, items, onEdit, dense = true }) {
 }
 
 export default function TehnikaTab() {
-  // ⬇️ Четем директно от Firestore store-а (който синхронизира и localStorage за съвместимост)
   const {
-    trucks,
-    tankers,
-    upsertTruck,
-    upsertTanker,
-    removeTruck,
-    removeTanker,
+    trucks, tankers,
+    upsertTruck, upsertTanker,
+    removeTruck, removeTanker,
   } = useTehnika();
 
   const [modal, setModal] = useState({ open: false, value: null, kind: "truck" }); // "truck" | "tanker"
@@ -114,45 +109,52 @@ export default function TehnikaTab() {
   // Нов запис (празни полета)
   const openNew = (kind) => setModal({ open: true, value: null, kind });
 
-  // Редакция – подаваме директно записа от Firestore
-  const openEditTruck = (value)  => setModal({ open: true, value: { ...value, type: "truck" },  kind: "truck"  });
+  // Редакция – подаваме type в value (само за удобство на модалите)
+  const openEditTruck = (value) => setModal({ open: true, value: { ...value, type: "truck" },  kind: "truck"  });
   const openEditTanker = (value) => setModal({ open: true, value: { ...value, type: "tanker" }, kind: "tanker" });
 
   const close = () => setModal({ open: false, value: null, kind: "truck" });
 
-  // Нормализация на полетата от модалите → към имената, които пазим в store/Firestore
-  const normalizePayload = (data, kind, keepId) => {
-    const id = keepId ? (data?.id || modal.value?.id) : undefined;
-    return {
-      ...(id ? { id } : {}),
-      type: kind,
-      number: (data.number || "").trim(),
-      // съвместимост: приемаме и стари имена от формата
-      insuranceExpiry: data.insuranceExpiry || data.goExpiry || "",
-      inspectionExpiry: data.inspectionExpiry || data.techExpiry || "",
-      adrExpiry: data.adrExpiry || "",
-      brand: data.brand || "",
-      model: data.model || "",
-      year: data.year || "",
-      vin: data.vin || "",
-      notes: data.notes || "",
-    };
-  };
-
-  // Save/Delete → минават през Firestore store-а
+  // Save/Delete → МИНАВАТ ПРЕЗ FIRESTORE CRUD
   const handleSave = async (data) => {
     const kind = modal.kind || data?.type || "truck";
-    const payload = normalizePayload(data, kind, /*keepId*/ true);
-    if (kind === "tanker") await upsertTanker(payload);
-    else                   await upsertTruck(payload);
-    close();
+    try {
+      if (kind === "tanker") {
+        await upsertTanker({
+          ...(modal.value?.id ? { id: modal.value.id } : {}),
+          number: data.number,
+          insuranceExpiry: data.insuranceExpiry || "",
+          inspectionExpiry: data.inspectionExpiry || "",
+          adrExpiry: data.adrExpiry || "",
+          type: "tanker",
+        });
+      } else {
+        await upsertTruck({
+          ...(modal.value?.id ? { id: modal.value.id } : {}),
+          number: data.number,
+          insuranceExpiry: data.insuranceExpiry || "",
+          inspectionExpiry: data.inspectionExpiry || "",
+          adrExpiry: data.adrExpiry || "",
+          type: "truck",
+        });
+      }
+      close();
+    } catch (e) {
+      console.error("[TehnikaTab] save error:", e);
+      alert("Грешка при запис. Виж конзолата.");
+    }
   };
 
   const handleDelete = async (id, type) => {
     if (!id) return;
-    if (type === "tanker") await removeTanker(id);
-    else                   await removeTruck(id);
-    close();
+    try {
+      if (type === "tanker") await removeTanker(id);
+      else                   await removeTruck(id);
+      close();
+    } catch (e) {
+      console.error("[TehnikaTab] delete error:", e);
+      alert("Грешка при изтриване. Виж конзолата.");
+    }
   };
 
   return (
@@ -176,7 +178,7 @@ export default function TehnikaTab() {
       {modal.kind === "tanker" ? (
         <EditTankerModal
           open={modal.open}
-          value={modal.value}            // null → „Нова цистерна“, има id → „Редакция“
+          value={modal.value}
           onClose={close}
           onSave={handleSave}
           onDelete={(id) => handleDelete(id, "tanker")}
@@ -184,7 +186,7 @@ export default function TehnikaTab() {
       ) : (
         <EditTruckModal
           open={modal.open}
-          value={modal.value}            // null → „Нов влекач“, има id → „Редакция“
+          value={modal.value}
           onClose={close}
           onSave={handleSave}
           onDelete={(id) => handleDelete(id, "truck")}
