@@ -1,19 +1,20 @@
+// src/shared/components/NotificationsBell.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * API:
- * - <NotificationsBell items={[{id, title, message, date, read:false}]}/>
- *    или остави празно — ще прочете от localStorage("notifications") = []
+ * - <NotificationsBell items={[{id, title, message, date, read:false}]} onMarkAllRead={fn}/>
+ *   Ако items не е подаден, ще чете + пише в localStorage("notifications") за назад-съвместимост.
  * - onOpen / onClose — незадължителни колбекове
  */
-export default function NotificationsBell({ items, onOpen, onClose }) {
+export default function NotificationsBell({ items, onOpen, onClose, onMarkAllRead }) {
   const [open, setOpen] = useState(false);
   const [localItems, setLocalItems] = useState([]);
 
   const btnRef = useRef(null);
   const rootRef = useRef(null);
 
-  // четем от localStorage ако не подадеш items
+  // fallback към localStorage ако няма props.items
   useEffect(() => {
     if (Array.isArray(items)) return;
     try {
@@ -65,10 +66,11 @@ export default function NotificationsBell({ items, onOpen, onClose }) {
     });
   };
 
-  // малък helper да четеема дата
   const fmt = (d) => {
     try {
-      const dt = typeof d === "string" ? new Date(d) : d;
+      const dt = typeof d === "string" || typeof d?.toDate === "function"
+        ? (typeof d?.toDate === "function" ? d.toDate() : new Date(d))
+        : d;
       return dt.toLocaleString();
     } catch {
       return "";
@@ -76,13 +78,13 @@ export default function NotificationsBell({ items, onOpen, onClose }) {
   };
 
   const markAllRead = () => {
-    // локално само визуално; ако ползваш проп items — извикай си външна логика
-    if (Array.isArray(items)) return;
+    if (Array.isArray(items)) {
+      onMarkAllRead?.();
+      return;
+    }
     const next = list.map((n) => ({ ...n, read: true }));
     setLocalItems(next);
-    try {
-      localStorage.setItem("notifications", JSON.stringify(next));
-    } catch {}
+    try { localStorage.setItem("notifications", JSON.stringify(next)); } catch {}
   };
 
   return (
@@ -97,11 +99,9 @@ export default function NotificationsBell({ items, onOpen, onClose }) {
         className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg
                    text-white hover:bg-white/10 border border-white/20 focus:outline-none focus:ring-2 focus:ring-white/30"
       >
-        {/* икона „камбанка“ */}
         <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor" aria-hidden="true">
           <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22ZM19 17v-5a7 7 0 1 0-14 0v5l-2 2v1h18v-1l-2-2Z"/>
         </svg>
-        {/* индикатор за непрочетени */}
         {unread > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full
                            bg-rose-500 text-white text-[10px] leading-[18px] text-center font-bold">

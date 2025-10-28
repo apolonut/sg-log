@@ -1,14 +1,22 @@
+// src/shared/components/GlobalSearch.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useLocalStorage } from "../hooks/useLocalStorage";
+import { useDrivers } from "@/features/drivers/drivers.store.jsx";
+import { useTehnika } from "@/features/tehnika/tehnika.store.jsx";
+import { useSchedules } from "@/features/schedule/schedule.store.jsx";
 
 export default function GlobalSearch() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
 
-  const [drivers]   = useLocalStorage("drivers", []);
-  const [trucks]    = useLocalStorage("trucks", []);
-  const [tankers]   = useLocalStorage("tankers", []);
-  const [schedules] = useLocalStorage("schedules", []);
+  // Realtime данни от провайдърите
+  const { list: drivers = [] } = useDrivers() || { list: [] };
+  const { trucks = [], tankers = [] } = useTehnika() || { trucks: [], tankers: [] };
+  const S = useSchedules();
+  const schedules = useMemo(() => {
+    const a = Array.isArray(S?.list) ? S.list : [];
+    const b = Array.isArray(S?.archived) ? S.archived : [];
+    return [...a, ...b];
+  }, [S?.list, S?.archived]);
 
   const results = useMemo(() => {
     if (!q.trim()) return [];
@@ -17,8 +25,18 @@ export default function GlobalSearch() {
     const items = [];
 
     drivers.forEach(d => {
-      if ([d.name, d.company, d.tractor, d.tanker, d.contact, d.egn].filter(Boolean).some(v => String(v).toLowerCase().includes(low))) {
-        items.push({ type: "driver", title: d.name, subtitle: d.company || "SG", extra: d.contact || "", payload: d });
+      if (
+        [d.name, d.company, d.tractor, d.tanker, d.contact, d.egn]
+          .filter(Boolean)
+          .some(v => String(v).toLowerCase().includes(low))
+      ) {
+        items.push({
+          type: "driver",
+          title: d.name,
+          subtitle: d.company || "SG",
+          extra: d.contact || "",
+          payload: d,
+        });
       }
     });
 
@@ -61,11 +79,16 @@ export default function GlobalSearch() {
   }, []);
 
   const pick = (item) => {
-    // За пример: при избор на шофьор → копирай телефон+композиция
+    // Пример: при избор на шофьор → копирай телефон+композиция
     if (item.type === "driver") {
       const d = item.payload;
       const text = `${d.name} ${d.contact ? " · " + d.contact : ""} ${d.tractor || ""}${d.tanker ? " / " + d.tanker : ""}`;
       navigator.clipboard.writeText(text).catch(()=>{});
+    }
+    // При избор на товар можеш да навигираш към таб "График":
+    if (item.type === "schedule") {
+      window.dispatchEvent(new CustomEvent("app:navigate", { detail: { tab: "schedule" } }));
+      // по желание: window.dispatchEvent(new CustomEvent("schedule:focus", { detail: { id: item.payload.id } }));
     }
     setOpen(false);
     setQ("");

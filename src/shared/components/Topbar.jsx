@@ -3,11 +3,10 @@ import React, { useEffect } from "react";
 import GlobalSearch from "./GlobalSearch.jsx";
 import NotificationsBell from "./NotificationsBell.jsx";
 import QuickAddMenu from "./QuickAddMenu.jsx";
-import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
+import { useNotifications } from "@/features/notifications/notifications.store.jsx";
 
 export default function Topbar({ title = "", onHamburger }) {
-  // Нотификации от localStorage
-  const [notifications] = useLocalStorage("notifications", []);
+  const N = useNotifications(); // { list, markAllRead, unreadCount, add, ... }
 
   // Нормализатор за quick-add
   useEffect(() => {
@@ -35,8 +34,8 @@ export default function Topbar({ title = "", onHamburger }) {
     <div
       className="sticky top-0 z-20 border-b"
       style={{
-        background: "var(--brand-600, rgb(79 70 229))",   // фон от theme.css
-        color: "var(--brand-on, white)",                 // текст върху brand фон
+        background: "var(--brand-600, rgb(79 70 229))",
+        color: "var(--brand-on, white)",
       }}
     >
       <div className="h-16 flex items-center gap-3 px-3 md:px-6">
@@ -51,16 +50,15 @@ export default function Topbar({ title = "", onHamburger }) {
           </svg>
         </button>
 
-        {/* Само заглавие */}
         <h1 className="text-lg md:text-xl font-semibold tracking-tight">
           {title}
         </h1>
 
         <div className="ml-auto flex items-center gap-2">
           <GlobalSearch />
-          {/* Камбанка със същите brand цветове */}
           <NotificationsBell
-            items={notifications}
+            items={N?.list || []}
+            onMarkAllRead={N?.markAllRead}
             className="text-[var(--brand-on,white)] hover:text-slate-100"
           />
           <QuickAddMenu onQuickAdd={handleQuickAdd} />

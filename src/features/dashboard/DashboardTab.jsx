@@ -1,4 +1,3 @@
-// src/features/dashboard/DashboardTab.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useDrivers } from "@/features/drivers/drivers.store.jsx";
 import { useTehnika } from "@/features/tehnika/tehnika.store.jsx";
@@ -74,30 +73,28 @@ const TripsTable = ({ trips, drivers }) => (
   </div>
 );
 
-// История (последни 5) – безопасно без дублирани ключове
-const PastTripsCard = ({ schedules }) => {
+// История (последни 5) – взимаме от активни + архив
+const PastTripsCard = ({ active = [], archived = [] }) => {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d;
   }, []);
 
-  // минали са тези, при които unloadDate е преди днес
+  const all = useMemo(() => [...active, ...archived], [active, archived]);
+
   const past = useMemo(() => {
-    // 1) филтрираме миналите
-    const raw = (schedules || []).filter((s) => {
+    const raw = (all || []).filter((s) => {
       const end = parseBGDate(s.unloadDate || s.endDate);
       return end && end < today;
     });
 
-    // 2) сортираме най-скорошни първи
     raw.sort((a, b) => {
       const ea = parseBGDate(a.unloadDate || a.endDate)?.getTime() ?? 0;
       const eb = parseBGDate(b.unloadDate || b.endDate)?.getTime() ?? 0;
       return eb - ea;
     });
 
-    // 3) дедуп по id (ако има дублирани записи в storage-а)
     const seen = new Set();
     const deduped = [];
     for (const s of raw) {
@@ -105,10 +102,10 @@ const PastTripsCard = ({ schedules }) => {
       if (seen.has(key)) continue;
       seen.add(key);
       deduped.push(s);
-      if (deduped.length >= 5) break; // показваме последните 5
+      if (deduped.length >= 5) break;
     }
     return deduped;
-  }, [schedules, today]);
+  }, [all, today]);
 
   return (
     <div className="card">
@@ -170,15 +167,20 @@ const PastTripsCard = ({ schedules }) => {
   );
 };
 
-
 export default function DashboardTab() {
-  // Данни
+  // Данни от store-овете
   const { list: drivers } = useDrivers() || { list: [] };
-  const { trucks, tankers } = useTehnika() || { trucks: [], tankers: [] };
+  const { trucks = [], tankers = [] } = useTehnika() || {};
   const S = useSchedules();
   const schedules = S?.list || [];
   const archived  = S?.archived || [];
-  const { clients: companies, routes } = useSettings() || { clients: [], routes: [] };
+  const { clients: companies = [], routes = [] } = useSettings() || { clients: [], routes: [] };
+
+  // На mount – синхронизирай статусите (ако е нужно)
+  useEffect(() => {
+    S?.recomputeStatuses?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Модали
   const [modals, setModals] = useState({
@@ -206,18 +208,6 @@ export default function DashboardTab() {
     return () => window.removeEventListener("quick-add", onQuick);
   }, []);
 
-  // Upsert помощници
-  const upsert = (setArr) => (item) =>
-    setArr(prev => {
-      if (item.id && prev.some(x=>x.id===item.id)) return prev.map(x=>x.id===item.id?{...x,...item}:x);
-      return [{ id: `${Date.now()}${Math.random().toString(36).slice(2)}`, ...item }, ...prev];
-    });
-  const upsertSchedule = upsert(setSchedules);
-  const upsertDriver   = upsert(setDrivers);
-  const upsertTruck    = upsert(setTrucks);
-  const upsertCompany  = upsert(setCompanies);
-  const upsertRoute    = upsert(setRoutes);
-
   // Дата
   const today = new Date(); today.setHours(0,0,0,0);
 
@@ -239,7 +229,7 @@ export default function DashboardTab() {
     .sort((a,b)=>parseBGDate(a.date || a.startDate)-parseBGDate(b.date || b.startDate))
   , [schedules, today, upcomingLimit]);
 
-  // Изтичащи документи (компактно, за панела вдясно)
+  // Изтичащи документи
   const expiringDocs = useMemo(() => {
     const out = [];
     // Шофьори
@@ -355,26 +345,36 @@ export default function DashboardTab() {
           </div>
 
           {/* История (последни 5) — с архив */}
-          <PastTripsCard activeSchedules={schedules} archivedSchedules={archived} />
+          <PastTripsCard active={schedules} archived={archived} />
         </div>
       </div>
 
-      {/* Модали */}
+      {/* Модали — всички работят със собствените си store-ове */}
       <EditScheduleModal
         open={modals.schedule.open}
         value={modals.schedule.value}
         onClose={()=>closeM("schedule")}
-        onSave={(data)=>{ upsertSchedule(data); closeM("schedule"); }}
-        onDelete={(id)=>{ setSchedules(prev=>prev.filter(x=>x.id!==id)); closeM("schedule"); }}
-        drivers={drivers}
-        companies={companies}
-        routes={routes}
-        allSchedules={schedules}
       />
-      <EditDriverModal open={modals.driver.open} value={modals.driver.value} onClose={()=>closeM("driver")} onSave={(data)=>{ upsertDriver(data); closeM("driver"); }} />
-      <EditTruckModal  open={modals.truck.open}  value={modals.truck.value}  onClose={()=>closeM("truck")}  onSave={(data)=>{ upsertTruck(data);  closeM("truck");  }} />
-      <RouteModal      open={modals.route.open}  value={modals.route.value}  onClose={()=>closeM("route")}  onSave={(data)=>{ upsertRoute(data);  closeM("route");  }} onDelete={(id)=>{ setRoutes(prev=>prev.filter(x=>x.id!==id)); closeM("route"); }} />
-      <CompanyModal    open={modals.company.open}value={modals.company.value}onClose={()=>closeM("company")}onSave={(data)=>{ upsertCompany(data);closeM("company");}} onDelete={(id)=>{ setCompanies(prev=>prev.filter(x=>x.id!==id)); closeM("company"); }} />
+      <EditDriverModal
+        open={modals.driver.open}
+        value={modals.driver.value}
+        onClose={()=>closeM("driver")}
+      />
+      <EditTruckModal
+        open={modals.truck.open}
+        value={modals.truck.value}
+        onClose={()=>closeM("truck")}
+      />
+      <RouteModal
+        open={modals.route.open}
+        value={modals.route.value}
+        onClose={()=>closeM("route")}
+      />
+      <CompanyModal
+        open={modals.company.open}
+        value={modals.company.value}
+        onClose={()=>closeM("company")}
+      />
     </>
   );
 }

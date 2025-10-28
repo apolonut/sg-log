@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import Shell from "../shared/components/Shell.jsx";
 import { Routes } from "./routes.jsx";
+import { NotificationsProvider } from "@/features/notifications/notifications.store.jsx";
 
 // Firebase: диагностика + live тест
 import { app, auth, db } from "@/firebase.js";
@@ -121,6 +122,7 @@ export default function App() {
       <DriversProvider>
         <TehnikaProvider>
           <SchedulesProvider>
+          <NotificationsProvider>
             <Shell
               navItems={NAV}
               activeKey={active}
@@ -137,6 +139,7 @@ export default function App() {
                 <Routes active={active} />
               </div>
             </Shell>
+            </NotificationsProvider>
           </SchedulesProvider>
         </TehnikaProvider>
       </DriversProvider>
