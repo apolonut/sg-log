@@ -17,7 +17,7 @@ import {
 
 // ⬇️ ВАЖНО: увиваме приложението с провайдърите
 import { DriversProvider } from "@/features/drivers/drivers.store.jsx";
-import { TehnikaProvider } from "@/features/tehnika/tehnika.store.js";
+import { TehnikaProvider } from "@/features/tehnika/tehnika.store.jsx";
 
 // Покажи/скрий временното debug табло (смени на false, когато не ти трябва)
 const SHOW_DEBUG = true;
