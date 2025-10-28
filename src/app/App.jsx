@@ -19,6 +19,7 @@ import {
 import { DriversProvider } from "@/features/drivers/drivers.store.jsx";
 import { TehnikaProvider } from "@/features/tehnika/tehnika.store.jsx";
 import { SettingsProvider } from "@/features/settings/settings.store.jsx";
+import { SchedulesProvider } from "@/features/schedule/schedule.store.jsx";
 
 // Покажи/скрий временното debug табло (смени на false, когато не ти трябва)
 const SHOW_DEBUG = true;
@@ -116,27 +117,29 @@ export default function App() {
   }, []);
 
   return (
-    <DriversProvider>
-      <TehnikaProvider>
-        <SettingsProvider>
-        <Shell
-          navItems={NAV}
-          activeKey={active}
-          onNavChange={setActive}
-          title={current?.label || "SG Logistics"}
-        >
-          <div className="p-4 md:p-6 lg:p-8">
-            {SHOW_DEBUG && (
-              <>
-                <DebugBanner />
-                <SyncProbe />
-              </>
-            )}
-            <Routes active={active} />
-          </div>
-        </Shell>
-        </SettingsProvider>
-      </TehnikaProvider>
-    </DriversProvider>
+    <SettingsProvider>
+      <DriversProvider>
+        <TehnikaProvider>
+          <SchedulesProvider>
+            <Shell
+              navItems={NAV}
+              activeKey={active}
+              onNavChange={setActive}
+              title={current?.label || "SG Logistics"}
+            >
+              <div className="p-4 md:p-6 lg:p-8">
+                {SHOW_DEBUG && (
+                  <>
+                    <DebugBanner />
+                    <SyncProbe />
+                  </>
+                )}
+                <Routes active={active} />
+              </div>
+            </Shell>
+          </SchedulesProvider>
+        </TehnikaProvider>
+      </DriversProvider>
+    </SettingsProvider>
   );
 }

@@ -1,12 +1,22 @@
 // src/features/schedule/schedule.store.jsx
-import React, { createContext, useContext, useEffect, useMemo, useRef } from "react";
-import { isPastBGDate, compareBG, parseBGDate } from "@/shared/utils/dates.jsx";
-import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useCallback, useState } from "react";
+import { parseBGDate } from "@/shared/utils/dates.jsx";
+import { db } from "@/firebase.js";
+import {
+  collection,
+  doc,
+  getDoc,
+  setDoc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+} from "firebase/firestore";
 
-// ---- Helpers -------------------------------------------------
-
-const genId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
+// ---- Helpers ----
 const STATUS = {
   PLANNED: "Планирано",
   IN_PROGRESS: "В процес",
@@ -31,96 +41,76 @@ function computeStatus(dateStr, unloadStr) {
   return STATUS.PLANNED;
 }
 
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-  }
-}
+const toISO = (bg /* dd.mm.yyyy */) => {
+  if (!bg) return "";
+  const d = parseBGDate(bg);
+  if (!d) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
 
-// ---- KMD (командировъчен №) ---------------------------------
+// ---- Collections ----
+const COL = "schedules";
+const COL_ARCH = "schedules_archived";
 
-function ymKey(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}${m}`;
-}
-function readCounterForMonth(ym) {
-  const raw = localStorage.getItem(`kmdCounter_${ym}`);
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
-}
-function writeCounterForMonth(ym, n) {
-  localStorage.setItem(`kmdCounter_${ym}`, String(n));
-}
-function buildKmd(number, date) {
-  const dd = String(date.getDate()).padStart(2, "0");
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  return `${number}/${dd}.${mm}`;
-}
-
-// ---- Context -------------------------------------------------
-
+// ---- Context ----
 const SchedulesCtx = createContext(null);
 
 export function SchedulesProvider({ children }) {
-  // АКТИВНИ товари
-  const [list, setList] = useLocalStorage("schedules", []);
-  // АРХИВ (отделен масив)
-  const [archived, setArchived] = useLocalStorage("schedules_archived", []);
+  const [list, setList] = useState([]);       // активни (realtime от Firestore)
+  const [archived, setArchived] = useState([]); // архив (realtime от Firestore)
 
-  // снапшот на драйверите за извеждане на driverCompany
-  const [drivers] = useLocalStorage("drivers", []);
-
-  const driverCompanyByName = useMemo(() => {
-    const map = new Map();
-    (drivers || []).forEach((d) => map.set(d.name, d.company || ""));
-    return map;
-  }, [drivers]);
-
-  // при mount: пресеем статусите (активни)
+  // Realtime: активни
   useEffect(() => {
-    setList((prev) =>
-      (prev || []).map((s) => {
-        const status = computeStatus(s.date, s.unloadDate);
-        const driverCompany = s.driver ? (driverCompanyByName.get(s.driver) || "") : "";
-        return { ...s, status, driverCompany };
-      })
+    const qAct = query(collection(db, COL), orderBy("dateISO", "asc"));
+    const unsub = onSnapshot(
+      qAct,
+      (snap) => {
+        const rows = snap.docs.map((d) => {
+          const data = d.data() || {};
+          const status = computeStatus(data.date, data.unloadDate);
+          return { id: d.id, ...data, status };
+        });
+        setList(rows);
+      },
+      (e) => console.error("[schedule.store] active snapshot error:", e)
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => unsub();
   }, []);
 
-  const recomputeStatuses = () => {
-    setList((prev) =>
-      (prev || []).map((s) => {
-        const status = computeStatus(s.date, s.unloadDate);
-        const driverCompany = s.driver ? (driverCompanyByName.get(s.driver) || "") : "";
-        return { ...s, status, driverCompany };
-      })
+  // Realtime: архив
+  useEffect(() => {
+    const qArch = query(collection(db, COL_ARCH), orderBy("dateISO", "desc"));
+    const unsub = onSnapshot(
+      qArch,
+      (snap) => {
+        const rows = snap.docs.map((d) => {
+          const data = d.data() || {};
+          const status = computeStatus(data.date, data.unloadDate);
+          return { id: d.id, ...data, status };
+        });
+        setArchived(rows);
+      },
+      (e) => console.error("[schedule.store] archive snapshot error:", e)
     );
-  };
+    return () => unsub();
+  }, []);
 
-  // ---------- История / селектори ----------
+  // селектори
   const past = useMemo(() => {
-    return (list || [])
-      .filter((s) => isPastBGDate(s.unloadDate || s.date))
-      .sort((a, b) => compareBG(a.unloadDate || a.date, b.unloadDate || b.date)); // desc
+    return (list || []).filter((s) => {
+      const end = parseBGDate(s.unloadDate || s.date);
+      return end && end.getTime() < today0().getTime();
+    });
   }, [list]);
 
   const upcoming = useMemo(() => {
-    return (list || [])
-      .filter((s) => !isPastBGDate(s.unloadDate || s.date))
-      .sort((a, b) => {
-        const ta = parseBGDate(a.date)?.getTime() ?? Infinity;
-        const tb = parseBGDate(b.date)?.getTime() ?? Infinity;
-        return ta - tb;
-      });
+    return (list || []).filter((s) => {
+      const end = parseBGDate(s.unloadDate || s.date);
+      return end && end.getTime() >= today0().getTime();
+    });
   }, [list]);
 
   const getPastCount = () => past.length;
@@ -133,182 +123,103 @@ export function SchedulesProvider({ children }) {
     });
   };
 
-  // ---------- Архивиране (с guard-и — без дубли) ----------
-  const archivedList = useMemo(
-    () =>
-      (archived || []).sort((a, b) =>
-        compareBG(a.unloadDate || a.date, b.unloadDate || b.date)
-      ),
-    [archived]
-  );
+  const isArchived = useCallback((id) => (archived || []).some((x) => x.id === id), [archived]);
 
-  const isArchived = (id) => !!(archived || []).find((x) => x.id === id);
+  // CRUD: активни
+  const add = useCallback(async (payload) => {
+    const docObj = {
+      company: payload.company || "",
+      route: payload.route || "",
+      driver: payload.driver || "",
+      driverCompany: payload.driverCompany || "",
+      leg: payload.leg || "Прав",
+      date: payload.date || "",
+      unloadDate: payload.unloadDate || "",
+      dateISO: toISO(payload.date),
+      unloadDateISO: toISO(payload.unloadDate),
+      komandirovka: payload.komandirovka || "",
+      notes: payload.notes || "",
+      tractor: payload.tractor || "",
+      tanker: payload.tanker || "",
+      createdAt: serverTimestamp(),
+    };
+    const res = await addDoc(collection(db, COL), docObj);
+    return res.id;
+  }, []);
 
-  const archiveById = (id) => {
+  const bulkAdd = useCallback(async (items = []) => {
+    const ids = [];
+    for (const p of items) {
+      ids.push(await add(p));
+    }
+    return ids;
+  }, [add]);
+
+  const update = useCallback(async (id, patch) => {
+    if (!id) return null;
+    const next = { ...patch };
+    if ("date" in patch) next.dateISO = toISO(patch.date);
+    if ("unloadDate" in patch) next.unloadDateISO = toISO(patch.unloadDate);
+    await updateDoc(doc(db, COL, id), next);
+    return { id, ...next };
+  }, []);
+
+  const remove = useCallback(async (id) => {
     if (!id) return;
-    // ако вече е в архива -> нищо
-    if (isArchived(id)) return;
+    await deleteDoc(doc(db, COL, id));
+    // безопасно чистим и от архива, ако случайно съществува
+    try { await deleteDoc(doc(db, COL_ARCH, id)); } catch {}
+  }, []);
 
-    setList((prev = []) => {
-      const idx = prev.findIndex((x) => x.id === id);
-      if (idx === -1) return prev;
-      const rec = prev[idx];
-      // безопасно добавяне в архива (без дубли)
-      setArchived((A = []) => {
-        if (A.some((x) => x.id === id)) return A;
-        return [ { ...rec }, ...A ];
-      });
-      const next = [...prev];
-      next.splice(idx, 1);
-      return next;
-    });
-  };
-
-  const unarchiveById = (id) => {
+  // Архивиране / Деархивиране (move между колекции)
+  const archiveById = useCallback(async (id) => {
     if (!id) return;
-    setArchived((prev = []) => {
-      const idx = prev.findIndex((x) => x.id === id);
-      if (idx === -1) return prev;
-      const rec = prev[idx];
-      const status = computeStatus(rec.date, rec.unloadDate);
-      const driverCompany = rec.driver ? (driverCompanyByName.get(rec.driver) || "") : "";
-
-      // върни към активните — без дубли
-      setList((L = []) => {
-        if (L.some((x) => x.id === id)) return L;
-        return [{ ...rec, status, driverCompany }, ...L];
-      });
-
-      const next = [...prev];
-      next.splice(idx, 1);
-      return next;
+    const srcRef = doc(db, COL, id);
+    const snap = await getDoc(srcRef);
+    if (!snap.exists()) return;
+    const data = snap.data() || {};
+    // преместване: задаваме същото id
+    await setDoc(doc(db, COL_ARCH, id), {
+      ...data,
+      archivedAt: serverTimestamp(),
     });
-  };
+    await deleteDoc(srcRef);
+  }, []);
 
-  // архивира всички DONE до cutoff (без дубли в архива)
-  const archiveUntil = (dateStr) => {
-    const cutoff = parseBGDate(dateStr);
-    if (!cutoff) return 0;
-    cutoff.setHours(23, 59, 59, 999);
-    let moved = 0;
-
-    setList((prev = []) => {
-      const keep = [];
-      const move = [];
-      for (const s of prev) {
-        const end = parseBGDate(s.unloadDate || s.date);
-        if (s.status === STATUS.DONE && end && end <= cutoff) move.push(s);
-        else keep.push(s);
-      }
-      if (move.length) {
-        setArchived((A = []) => {
-          const existing = new Set((A || []).map((x) => x.id));
-          const add = move.filter((m) => !existing.has(m.id));
-          moved = add.length;
-          return add.length ? [...add, ...A] : A;
-        });
-      }
-      return keep;
+  const unarchiveById = useCallback(async (id) => {
+    if (!id) return;
+    const srcRef = doc(db, COL_ARCH, id);
+    const snap = await getDoc(srcRef);
+    if (!snap.exists()) return;
+    const data = snap.data() || {};
+    await setDoc(doc(db, COL, id), {
+      ...data,
+      unarchivedAt: serverTimestamp(),
     });
+    await deleteDoc(srcRef);
+  }, []);
 
-    return moved;
-  };
-
-  // автоматичен архив: DONE по-стари от N дни (без дубли)
-  const archiveAuto = ({ cutoffDays = 14 } = {}) => {
-    const cutoff = new Date();
-    cutoff.setHours(23, 59, 59, 999);
-    cutoff.setDate(cutoff.getDate() - cutoffDays);
-    let moved = 0;
-
-    setList((prev = []) => {
-      const keep = [];
-      const move = [];
-      for (const s of prev) {
-        const end = parseBGDate(s.unloadDate || s.date);
-        if (s.status === STATUS.DONE && end && end <= cutoff) move.push(s);
-        else keep.push(s);
-      }
-      if (move.length) {
-        setArchived((A = []) => {
-          const existing = new Set((A || []).map((x) => x.id));
-          const add = move.filter((m) => !existing.has(m.id));
-          moved = add.length;
-          return add.length ? [...add, ...A] : A;
-        });
-      }
-      return keep;
-    });
-
-    return moved;
-  };
-
-  // ---------- CRUD (активни) ----------
-  const add = (payload) => {
-    const id = payload.id || genId();
-    const status = computeStatus(payload.date, payload.unloadDate);
-    const driverCompany = payload.driver ? (driverCompanyByName.get(payload.driver) || "") : "";
-    const item = { ...payload, id, status, driverCompany };
-    setList((prev) => [item, ...prev]);
-    return id;
-  };
-
-  const bulkAdd = (items = []) => {
-    const prepared = items.map((p) => {
-      const id = p.id || genId();
-      const status = computeStatus(p.date, p.unloadDate);
-      const driverCompany = p.driver ? (driverCompanyByName.get(p.driver) || "") : "";
-      return { ...p, id, status, driverCompany };
-    });
-    setList((prev) => [...prepared, ...prev]);
-    return prepared.map((x) => x.id);
-  };
-
-  const update = (id, patch) => {
-    let updated = null;
-    setList((prev) =>
-      prev.map((s) => {
-        if (s.id !== id) return s;
-        const next = { ...s, ...patch };
-        next.status = computeStatus(next.date, next.unloadDate);
-        next.driverCompany = next.driver ? (driverCompanyByName.get(next.driver) || "") : "";
-        updated = next;
-        return next;
-      })
-    );
-    return updated;
-  };
-
-  const remove = (id) => {
-    setList((prev) => prev.filter((s) => s.id !== id));
-    // ако случайно има такъв запис в архива (няма да вреди) — чистим
-    setArchived((A = []) => A.filter((x) => x.id !== id));
-  };
-
-  // clone
-  const clone = (id) => {
+  const clone = useCallback(async (id) => {
     const src = (list || []).find((x) => x.id === id);
     if (!src) return null;
     const copy = {
-      id: genId(),
       company: src.company || "",
       route: src.route || "",
       driver: "",
       leg: src.leg || "Прав",
-      date: src.date,
-      unloadDate: src.unloadDate,
-      status: computeStatus(src.date, src.unloadDate),
+      date: src.date || "",
+      unloadDate: src.unloadDate || "",
       komandirovka: "",
-      notes: src.notes || "",
-      pairGroupId: null,
+      notes: "",
+      tractor: src.tractor || "",
+      tanker: src.tanker || "",
       driverCompany: "",
     };
-    setList((prev) => [copy, ...prev]);
-    return copy.id;
-  };
+    return await add(copy);
+  }, [list, add]);
 
-  // copyToClipboard
-  const copyToClipboard = (s) => {
+  // copy helper
+  const copyToClipboard = async (s) => {
     const text = [
       `Клиент: ${s.company || "—"}`,
       `Релация: ${s.route || "—"}`,
@@ -317,23 +228,65 @@ export function SchedulesProvider({ children }) {
       `№: ${s.komandirovka || "—"}`,
       `Бележки: ${s.notes || "—"}`,
     ].join(" | ");
-    return copyText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
   };
 
-  // KMD
+  // KMD: брояч в localStorage (оставяме както преди)
+  const ymKey = (d = new Date()) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    return `${y}${m}`;
+  };
+  const readCounterForMonth = (ym) => {
+    const raw = localStorage.getItem(`kmdCounter_${ym}`);
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+  const writeCounterForMonth = (ym, n) => {
+    localStorage.setItem(`kmdCounter_${ym}`, String(n));
+  };
+  const buildKmd = (number, date) => {
+    const dd = String(date.getDate()).padStart(2, "0");
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    return `${number}/${dd}.${mm}`;
+    // пример: 223/17.09
+  };
   const getNextKmd = ({ dateStr, commit } = { dateStr: null, commit: false }) => {
     const dt = parseBGDate(dateStr) || new Date();
     const ymk = ymKey(dt);
     const current = readCounterForMonth(ymk);
-    const num = current + (commit ? 1 : 1);
+    const num = current + 1;
     if (commit) writeCounterForMonth(ymk, current + 1);
     return buildKmd(num, dt);
   };
 
+  const recomputeStatuses = useCallback(() => {
+    // няма нужда — snapshot-ът вече ги преизчислява; оставяме за обратна съвместимост
+    setList((prev) => (prev || []).map((s) => ({ ...s, status: computeStatus(s.date, s.unloadDate) })));
+  }, []);
+
+  // авто-обновяване на статусите при фокус на таба (съвместимост)
+  const onFocusRef = useRef(null);
+  useEffect(() => {
+    onFocusRef.current = () => recomputeStatuses();
+    const fn = () => onFocusRef.current && onFocusRef.current();
+    window.addEventListener("focus", fn);
+    return () => window.removeEventListener("focus", fn);
+  }, [recomputeStatuses]);
+
   const value = {
     // данни
-    list,                 // активни
-    archived: archivedList,
+    list,
+    archived,
     // селектори
     past,
     upcoming,
@@ -343,8 +296,6 @@ export function SchedulesProvider({ children }) {
     // архивиране
     archiveById,
     unarchiveById,
-    archiveUntil,
-    archiveAuto,
     isArchived,
     // CRUD
     add,
@@ -358,16 +309,6 @@ export function SchedulesProvider({ children }) {
     recomputeStatuses,
     STATUS,
   };
-
-  // авто-обновяване на статусите при фокус на таба
-  const onFocusRef = useRef(null);
-  useEffect(() => {
-    onFocusRef.current = () => recomputeStatuses();
-    const fn = () => onFocusRef.current && onFocusRef.current();
-    window.addEventListener("focus", fn);
-    return () => window.removeEventListener("focus", fn);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return <SchedulesCtx.Provider value={value}>{children}</SchedulesCtx.Provider>;
 }

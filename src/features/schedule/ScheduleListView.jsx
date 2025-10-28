@@ -94,7 +94,7 @@ export default function ScheduleListView({ items, onEdit, onAdd }) {
     await copyText(text);
   };
 
-  const handleDuplicate = (s) => {
+  const handleDuplicate = async (s) => {
     if (!S) return;
     const copy = {
       company: s.company || "",
@@ -106,22 +106,24 @@ export default function ScheduleListView({ items, onEdit, onAdd }) {
       komandirovka: "",
       notes: "",
       status: s.status || "Планирано",
+      tractor: s.tractor || "",
+      tanker: s.tanker || "",
     };
-    S.add(copy);
+    // Firestore write (realtime обновява списъка)
+    await S.add(copy);
   };
 
-  const handleDelete = (s) => {
+  const handleDelete = async (s) => {
     if (!S || !s?.id) return;
     if (confirm("Сигурни ли сте, че искате да изтриете този товар?")) {
-      S.remove(s.id);
+      await S.remove(s.id);
     }
   };
 
-  const handleArchive = (s) => {
+  const handleArchive = async (s) => {
     if (!S || !s?.id) return;
-    // предпазване от повторно архивиране
     if (S.isArchived?.(s.id)) return;
-    S.archiveById(s.id);
+    await S.archiveById(s.id);
   };
 
   const canArchive = (s) => {
@@ -139,7 +141,7 @@ export default function ScheduleListView({ items, onEdit, onAdd }) {
       <div className="card">
         <div className="flex items-center justify-between">
           <h4 className="text-lg font-bold">Обобщение</h4>
-        {onAdd && (
+          {onAdd && (
             <button type="button" className="btn btn-primary h-9" onClick={onAdd}>
               + Нов товар
             </button>

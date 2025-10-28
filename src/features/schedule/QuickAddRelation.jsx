@@ -70,14 +70,12 @@ function AutoComplete({
 }
 
 export default function QuickAddRelation() {
-  // store (ако провайдърът липсва, падаме към localStorage)
-  const S = useSchedules();
+  const S = useSchedules(); // вече пише към Firestore (realtime)
 
-  // данни
+  // данни от провайдърите (идват realtime във localStorage хука)
   const [drivers] = useLocalStorage("drivers", []);
   const [clients] = useLocalStorage("clients", []);
   const [routes]  = useLocalStorage("routes", []);
-  const [schedules, setSchedules] = useLocalStorage("schedules", []);
 
   // форма: ПРАВ
   const [driver, setDriver] = useState("");
@@ -118,12 +116,6 @@ export default function QuickAddRelation() {
     setKomDir(nextKmdForDate(bg));       // напр. "223/17.09"
   };
 
-  // създаване (fallback към localStorage ако няма store.add)
-  const upsertLocal = (obj) =>
-    setSchedules((prev) => [{ id: `${Date.now()}${Math.random().toString(36).slice(2)}`, ...obj }, ...prev]);
-
-  const addOne = (obj) => (S?.add ? S.add(obj) : upsertLocal(obj));
-
   const resetForm = () => {
     setDriver(""); setClient(""); setRoute("");
     setStart(todayISO()); setEnd(addDaysISO(todayISO(), 1));
@@ -131,14 +123,14 @@ export default function QuickAddRelation() {
     setShowReverse(false); setRouteR(""); setStartR(addDaysISO(todayISO(), 1)); setEndR(addDaysISO(todayISO(), 2)); setNotesR("");
   };
 
-  const handleAdd = (e) => {
+  const handleAdd = async (e) => {
     e.preventDefault();
     if (!driver || !client || !route || !start || !end) return;
 
     const driverCompany = (drivers.find((d) => d.name === driver)?.company) || "";
 
     // ПРАВ
-    addOne({
+    await S.add({
       driver,
       driverCompany,
       company: client,
@@ -153,7 +145,7 @@ export default function QuickAddRelation() {
 
     // ОБРАТЕН (ако е активиран)
     if (showReverse && routeR && startR && endR) {
-      addOne({
+      await S.add({
         driver,
         driverCompany,
         company: client,
@@ -236,27 +228,26 @@ export default function QuickAddRelation() {
           </div>
 
           {/* Дати */}
-<div className="col-span-12 md:col-span-3 flex gap-3 items-end">
-  <div className="flex-1">
-    <label className="text-[11px] uppercase tracking-wide text-slate-500">Начало</label>
-    <input
-      type="date"
-      className={classInput + " mt-1 w-full"}
-      value={start}
-      onChange={(e) => setStart(e.target.value)}
-    />
-  </div>
-  <div className="flex-1">
-    <label className="text-[11px] uppercase tracking-wide text-slate-500">Край</label>
-    <input
-      type="date"
-      className={classInput + " mt-1 w-full"}
-      value={end}
-      onChange={(e) => setEnd(e.target.value)}
-    />
-  </div>
-</div>
-
+          <div className="col-span-12 md:col-span-3 flex gap-3 items-end">
+            <div className="flex-1">
+              <label className="text-[11px] uppercase tracking-wide text-slate-500">Начало</label>
+              <input
+                type="date"
+                className={classInput + " mt-1 w-full"}
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-[11px] uppercase tracking-wide text-slate-500">Край</label>
+              <input
+                type="date"
+                className={classInput + " mt-1 w-full"}
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+              />
+            </div>
+          </div>
 
           {/* Бележки + КМД */}
           <div className="col-span-12 grid grid-cols-12 gap-2 items-center mt-2">
