@@ -49,23 +49,34 @@ function dedupeByName(items) {
   return out;
 }
 
+// безопасен конвертор към number|null (НЕ връща 0 при null/празно)
+const numOrNull = (v) => {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (s === "") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+};
+
 /** Нормализиране на route (добавяме clientIds: []) */
 function normalizeRoute(r) {
   const name = normStr(r?.name) || (r?.from && r?.to ? `${r.from} → ${r.to}` : "");
-  const distance = Number.isFinite(+r?.distance) ? +r.distance : "";
-  const duration = Number.isFinite(+r?.duration) ? +r.duration : "";
+  const distance = numOrNull(r?.distance);
+  const duration = numOrNull(r?.duration);
   const clientIds = Array.isArray(r?.clientIds) ? r.clientIds.filter(Boolean) : [];
 
   return {
-    id: r?.id || ensureId("rt"),
+    // ВАЖНО: НЕ генерираме id за нови релации.
+    // Ако няма id -> остава undefined -> upsertRoute ще използва addDoc().
+    id: r?.id ?? undefined,
     name,
     from: normStr(r?.from),
     to: normStr(r?.to),
-    distance,                 // (км, по желание)
-    duration,                 // (дни; ползва се в QuickAddRelation)
+    distance,                 // number | null
+    duration,                 // number | null (ползва се в QuickAddRelation)
     isBidirectional: !!r?.isBidirectional,
     notes: normStr(r?.notes),
-    clientIds,                // списък от id на клиенти, към които е вързана релацията
+    clientIds,                // string[]
   };
 }
 
@@ -89,10 +100,14 @@ export function SettingsProvider({ children }) {
   // Clients
   useEffect(() => {
     const qClients = query(collection(db, COL_CLIENTS), orderBy("name", "asc"));
-    const unsub = onSnapshot(qClients, (snap) => {
-      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setClients(rows || []);
-    }, (e) => console.error("[settings.store] clients snapshot error:", e));
+    const unsub = onSnapshot(
+      qClients,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setClients(rows || []);
+      },
+      (e) => console.error("[settings.store] clients snapshot error:", e)
+    );
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -100,10 +115,14 @@ export function SettingsProvider({ children }) {
   // Subcontractors
   useEffect(() => {
     const qSubs = query(collection(db, COL_SUBS), orderBy("name", "asc"));
-    const unsub = onSnapshot(qSubs, (snap) => {
-      const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setSubs(rows || []);
-    }, (e) => console.error("[settings.store] subs snapshot error:", e));
+    const unsub = onSnapshot(
+      qSubs,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setSubs(rows || []);
+      },
+      (e) => console.error("[settings.store] subs snapshot error:", e)
+    );
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -111,10 +130,14 @@ export function SettingsProvider({ children }) {
   // Routes
   useEffect(() => {
     const qRoutes = query(collection(db, COL_ROUTES), orderBy("name", "asc"));
-    const unsub = onSnapshot(qRoutes, (snap) => {
-      const rows = snap.docs.map(d => ({ id: d.id, ...normalizeRoute(d.data()) }));
-      setRoutes(rows || []);
-    }, (e) => console.error("[settings.store] routes snapshot error:", e));
+    const unsub = onSnapshot(
+      qRoutes,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...normalizeRoute(d.data()) }));
+        setRoutes(rows || []);
+      },
+      (e) => console.error("[settings.store] routes snapshot error:", e)
+    );
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -122,7 +145,7 @@ export function SettingsProvider({ children }) {
   /** ===== Миграции/нормализации (еднократно, само за стара локална история) ===== */
   useEffect(() => {
     // Нормализирай всички локални релации (ако имало стари данни) – безопасно
-    setRoutes((prev) => Array.isArray(prev) ? prev.map(normalizeRoute) : []);
+    setRoutes((prev) => (Array.isArray(prev) ? prev.map(normalizeRoute) : []));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -156,11 +179,14 @@ export function SettingsProvider({ children }) {
     await deleteDoc(doc(db, COL_CLIENTS, id));
   }, []);
 
-  const bulkUpsertClients = useCallback(async (items = []) => {
-    for (const raw of items) {
-      await upsertClient(raw);
-    }
-  }, [upsertClient]);
+  const bulkUpsertClients = useCallback(
+    async (items = []) => {
+      for (const raw of items) {
+        await upsertClient(raw);
+      }
+    },
+    [upsertClient]
+  );
 
   /** ===== CRUD: Subcontractors ===== */
   const upsertSub = useCallback(async (item) => {
@@ -190,11 +216,14 @@ export function SettingsProvider({ children }) {
     await deleteDoc(doc(db, COL_SUBS, id));
   }, []);
 
-  const bulkUpsertSubs = useCallback(async (items = []) => {
-    for (const raw of items) {
-      await upsertSub(raw);
-    }
-  }, [upsertSub]);
+  const bulkUpsertSubs = useCallback(
+    async (items = []) => {
+      for (const raw of items) {
+        await upsertSub(raw);
+      }
+    },
+    [upsertSub]
+  );
 
   /** ===== CRUD: Routes ===== */
   const upsertRoute = useCallback(async (item) => {
@@ -231,11 +260,14 @@ export function SettingsProvider({ children }) {
     await deleteDoc(doc(db, COL_ROUTES, id));
   }, []);
 
-  const bulkUpsertRoutes = useCallback(async (items = []) => {
-    for (const raw of items) {
-      await upsertRoute(raw);
-    }
-  }, [upsertRoute]);
+  const bulkUpsertRoutes = useCallback(
+    async (items = []) => {
+      for (const raw of items) {
+        await upsertRoute(raw);
+      }
+    },
+    [upsertRoute]
+  );
 
   /** ===== Удобни lookup-и / търсене / сортиране ===== */
   const maps = {
@@ -261,7 +293,9 @@ export function SettingsProvider({ children }) {
   /** Филтри за релации по клиент (за QuickAddRelation) */
   const getRoutesForClient = (clientId) => {
     if (!clientId) return sorted.routes;
-    return (sorted.routes || []).filter((r) => Array.isArray(r.clientIds) && r.clientIds.includes(clientId));
+    return (sorted.routes || []).filter(
+      (r) => Array.isArray(r.clientIds) && r.clientIds.includes(clientId)
+    );
   };
 
   /** Import / Export */

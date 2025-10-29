@@ -1,25 +1,11 @@
 // src/features/drivers/DriversTab.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Tabs from "@/shared/components/Tabs.jsx";
-// ⬇️ махаме useLocalStorage за drivers; оставяме го за други неща
 import { useSchedules } from "@/features/schedule/schedule.store.jsx";
 import { useSettings } from "@/features/settings/settings.store.jsx";
 import { parseBGDate, checkExpiry } from "@/shared/utils/dates";
 import EditDriverModal from "@/features/drivers/EditDriverModal.jsx";
-import { useDrivers } from "./drivers.store.jsx"; // ⬅️ НОВО
-
-// SG списък (маркираме автоматично)
-const SG_NAMES = [
-  "Борислав Георгиев",
-  "Валери Върбанов",
-  "Иван Ангелов",
-  "Милен Иванов",
-  "Моньо Монев",
-  "Панайот Кокалджиев",
-  "Станимир Инджов",
-  "Стоян Кокалджиев",
-  "Тодор Йовчев",
-];
+import { useDrivers } from "./drivers.store.jsx";
 
 // helper: копиране в клипборда
 const copyText = async (text) => {
@@ -53,7 +39,10 @@ function DocBadge({ label, date }) {
 
 function StatusDot({ busy }) {
   return (
-    <span title={busy ? "Зает" : "Свободен"} className={`inline-block w-2.5 h-2.5 rounded-full ${busy ? "bg-orange-500" : "bg-green-500"}`} />
+    <span
+      title={busy ? "Зает" : "Свободен"}
+      className={`inline-block w-2.5 h-2.5 rounded-full ${busy ? "bg-orange-500" : "bg-green-500"}`}
+    />
   );
 }
 
@@ -71,6 +60,7 @@ const IconBuilding = ({ className = "w-4 h-4" }) => (
 );
 
 function DriverRow({ d, busy, onEdit, onCopyDriver, onCopyCompany }) {
+  const isSG = (d.company || "SG") === "SG";
   return (
     <tr className="border-b hover:bg-slate-50">
       <td className="p-3">
@@ -88,17 +78,26 @@ function DriverRow({ d, busy, onEdit, onCopyDriver, onCopyCompany }) {
           <DocBadge label="ADR"  date={d.adrExpiry} />
         </div>
       </td>
-      {/* ЕГН + Телефон */}
       <td className="p-3 text-sm">{d.egn || "—"}</td>
-      <td className="p-3 text-sm">{d.contact || "—"}</td>
+      <td className="p-3 text-sm">{d.contact || d.phone || "—"}</td>
       <td className="p-3">
         <div className="flex items-center justify-end gap-2">
-          <button className="btn btn-ghost px-2 py-1 text-xs" title="Копирай шофьор" onClick={() => onCopyDriver(d)}>
+          <button
+            className="btn btn-ghost px-2 py-1 text-xs"
+            title="Копирай шофьор"
+            onClick={() => onCopyDriver(d)}
+          >
             <IconClipboard />
           </button>
-          <button className="btn btn-ghost px-2 py-1 text-xs" title="Копирай фирма" onClick={() => onCopyCompany(d)}>
-            <IconBuilding />
-          </button>
+          {!isSG && (
+            <button
+              className="btn btn-ghost px-2 py-1 text-xs"
+              title="Копирай фирма"
+              onClick={() => onCopyCompany(d)}
+            >
+              <IconBuilding />
+            </button>
+          )}
           <button className="text-xs underline text-slate-600" onClick={() => onEdit(d)}>редакция</button>
         </div>
       </td>
@@ -107,22 +106,17 @@ function DriverRow({ d, busy, onEdit, onCopyDriver, onCopyCompany }) {
 }
 
 export default function DriversTab() {
-  // ⬇️ ДАННИТЕ ЗА ШОФЬОРИ ВЕЧЕ ИДВАТ ОТ FIRESTORE ПРЕЗ CONTEXT
-  const { list: drivers, upsert, remove } = useDrivers();
+  // Данни от Firestore (нормализирани: празна фирма -> "SG")
+  const { list: drivers, upsert } = useDrivers();
 
-  // останалите засега идват от localStorage (ще ги мигрираме по-късно)
+  // Настройки/график
   const S = useSchedules();
   const { subcontractors } = useSettings();
   const schedules = S?.list || [];
 
-  const [active, setActive] = useState("sg");
+  const [active, setActive] = useState("sg"); // "sg" | "sub"
   const [q, setQ] = useState("");
   const [toast, setToast] = useState("");
-
-  // еднократна маркировка кой е SG (само върху локалното копие; реалното upsert е при Save)
-  useEffect(() => {
-    // няма setDrivers тук – списъкът идва от Firestore
-  }, []);
 
   const today = useMemo(() => {
     const t = new Date();
@@ -144,11 +138,18 @@ export default function DriversTab() {
     (d.tractor || "").toLowerCase().includes(q.toLowerCase()) ||
     (d.tanker || "").toLowerCase().includes(q.toLowerCase());
 
-  const sgDrivers   = useMemo(() => (drivers || []).filter((d) => d.isOwn && matches(d)), [drivers, q]);
-  const subDrivers  = useMemo(() => (drivers || []).filter((d) => !d.isOwn && matches(d)), [drivers, q]);
+  // Критично: разделяне по company === "SG"
+  const sgDrivers  = useMemo(
+    () => (drivers || []).filter((d) => ((d.company || "SG") === "SG") && matches(d)),
+    [drivers, q]
+  );
+  const subDrivers = useMemo(
+    () => (drivers || []).filter((d) => ((d.company || "SG") !== "SG") && matches(d)),
+    [drivers, q]
+  );
 
-  const sgBusy   = useMemo(() => sgDrivers.filter((d) => isBusy(d.name)).length, [sgDrivers, schedules]);
-  const sgFree   = sgDrivers.length - sgBusy;
+  const sgBusy = useMemo(() => sgDrivers.filter((d) => isBusy(d.name)).length, [sgDrivers, schedules]);
+  const sgFree = sgDrivers.length - sgBusy;
 
   const subByCompany = useMemo(() => {
     const acc = {};
@@ -160,7 +161,7 @@ export default function DriversTab() {
     return acc;
   }, [subDrivers]);
 
-  // форматери за копиране — използваме ВЛЕКАЧ и ЦИСТЕРНА
+  // копиране — форматери
   const formatDriverLine = (d) => {
     const egn  = (d.egn || "").trim() || "—";
     const tr   = (d.tractor || "").trim() || "—";
@@ -191,33 +192,28 @@ export default function DriversTab() {
     notify("Копирано");
   };
   const handleCopyCompany = async (d) => {
+    if ((d.company || "SG") === "SG") return;
     const comp = findSubcontractor(d.company);
     await copyText(formatCompanyBlock(comp, d.company));
     notify("Копирано");
   };
 
-  // модал нов/редакция
+  // модал
   const [modal, setModal] = useState({ open: false, value: null });
   const openModal  = (value = null) => setModal({ open: true, value });
   const closeModal = () => setModal({ open: false, value: null });
 
-  // ⬇️ ЗАМЯНА: вече записваме в Firestore чрез upsert(); списъкът ще се обнови от onSnapshot
   const upsertDriver = async (data) => {
-    const isOwn = SG_NAMES.includes(data.name)
-      ? true
-      : (typeof data.isOwn === "boolean" ? data.isOwn : false);
-
     await upsert({
       ...(data.id ? { id: data.id } : {}),
       name: data.name || "",
       phone: data.contact || data.phone || "",
-      company: data.company || "",
+      company: data.company || "", // store ще нормализира към "SG" при празно
       egn: data.egn || "",
       tractor: data.tractor || "",
       tanker: data.tanker || "",
       driverCardExpiry: data.driverCardExpiry || "",
       adrExpiry: data.adrExpiry || "",
-      isOwn,
     });
   };
 
@@ -336,8 +332,8 @@ export default function DriversTab() {
         value={modal.value}
         onClose={closeModal}
         onSave={async (data) => {
-          await upsertDriver(data); // ⬅️ запис в Firestore
-          closeModal();            // списъкът ще се обнови автоматично от onSnapshot
+          await upsertDriver(data);
+          closeModal(); // списъкът се обновява автоматично от onSnapshot
         }}
       />
 

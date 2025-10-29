@@ -43,8 +43,8 @@ export function NotificationsProvider({ children }) {
       (snap) => {
         const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         rows.sort((a, b) => {
-          const ta = (a.date?.seconds ?? a.createdAt?.seconds ?? 0);
-          const tb = (b.date?.seconds ?? b.createdAt?.seconds ?? 0);
+          const ta = a.date?.seconds ?? a.createdAt?.seconds ?? 0;
+          const tb = b.date?.seconds ?? b.createdAt?.seconds ?? 0;
           return tb - ta; // desc
         });
         setItems(rows || []);

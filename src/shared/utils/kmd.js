@@ -1,3 +1,5 @@
+// shared/utils/kmd.js
+
 // Ключ в localStorage за броячи
 const STORAGE_KEY = "kmdCounters";
 

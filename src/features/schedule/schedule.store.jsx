@@ -30,11 +30,29 @@ const today0 = () => {
   return t;
 };
 
+/**
+ * По-реалистичен статус:
+ * - ако има само start => преди start = PLANNED; след/на start = IN_PROGRESS
+ * - ако има start и end:
+ *    t < start  => PLANNED
+ *    start<=t<=end => IN_PROGRESS
+ *    t > end    => DONE
+ */
 function computeStatus(dateStr, unloadStr) {
   const t = today0();
   const st = parseBGDate(dateStr);
   const en = parseBGDate(unloadStr);
-  if (!st || !en) return STATUS.PLANNED;
+
+  if (!st && !en) return STATUS.PLANNED;
+  if (st && !en) {
+    if (t < st) return STATUS.PLANNED;
+    return STATUS.IN_PROGRESS;
+  }
+  if (!st && en) {
+    // рядък случай, но приемаме, че е IN_PROGRESS докато мине end
+    if (t <= en) return STATUS.IN_PROGRESS;
+    return STATUS.DONE;
+  }
   if (t < st) return STATUS.PLANNED;
   if (t >= st && t <= en) return STATUS.IN_PROGRESS;
   if (t > en) return STATUS.DONE;
@@ -59,8 +77,26 @@ const COL_ARCH = "schedules_archived";
 const SchedulesCtx = createContext(null);
 
 export function SchedulesProvider({ children }) {
-  const [list, setList] = useState([]);       // активни (realtime от Firestore)
+  const [list, setList] = useState([]);         // активни (realtime от Firestore)
   const [archived, setArchived] = useState([]); // архив (realtime от Firestore)
+
+  // Тикер за „смяна на деня“ и focus рефреш (за да се преизчисляват селектори/статуси)
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const onFocus = () => setNowTick((x) => x + 1);
+    window.addEventListener("focus", onFocus);
+    // опционално: дневен таймер (в 00:05ч)
+    const msToMidnight = (() => {
+      const t = new Date();
+      t.setHours(24, 5, 0, 0);
+      return t.getTime() - Date.now();
+    })();
+    const midnightTimer = setTimeout(() => setNowTick((x) => x + 1), Math.max(1000, msToMidnight));
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearTimeout(midnightTimer);
+    };
+  }, []);
 
   // Realtime: активни
   useEffect(() => {
@@ -98,20 +134,22 @@ export function SchedulesProvider({ children }) {
     return () => unsub();
   }, []);
 
-  // селектори
+  // Селектори (рефрешват и при nowTick)
   const past = useMemo(() => {
+    const t0 = today0().getTime();
     return (list || []).filter((s) => {
       const end = parseBGDate(s.unloadDate || s.date);
-      return end && end.getTime() < today0().getTime();
+      return end && end.getTime() < t0;
     });
-  }, [list]);
+  }, [list, nowTick]);
 
   const upcoming = useMemo(() => {
+    const t0 = today0().getTime();
     return (list || []).filter((s) => {
       const end = parseBGDate(s.unloadDate || s.date);
-      return end && end.getTime() >= today0().getTime();
+      return end && end.getTime() >= t0;
     });
-  }, [list]);
+  }, [list, nowTick]);
 
   const getPastCount = () => past.length;
   const getPastSlice = (n = 20, offset = 0) => past.slice(offset, offset + n);
@@ -123,7 +161,10 @@ export function SchedulesProvider({ children }) {
     });
   };
 
-  const isArchived = useCallback((id) => (archived || []).some((x) => x.id === id), [archived]);
+  const isArchived = useCallback(
+    (id) => (archived || []).some((x) => x.id === id),
+    [archived]
+  );
 
   // CRUD: активни
   const add = useCallback(async (payload) => {
@@ -142,22 +183,25 @@ export function SchedulesProvider({ children }) {
       tractor: payload.tractor || "",
       tanker: payload.tanker || "",
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     };
     const res = await addDoc(collection(db, COL), docObj);
     return res.id;
   }, []);
 
-  const bulkAdd = useCallback(async (items = []) => {
-    const ids = [];
-    for (const p of items) {
-      ids.push(await add(p));
-    }
-    return ids;
-  }, [add]);
+  const bulkAdd = useCallback(
+    async (items = []) => {
+      const results = await Promise.allSettled(items.map((p) => add(p)));
+      return results
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => r.value);
+    },
+    [add]
+  );
 
   const update = useCallback(async (id, patch) => {
     if (!id) return null;
-    const next = { ...patch };
+    const next = { ...patch, updatedAt: serverTimestamp() };
     if ("date" in patch) next.dateISO = toISO(patch.date);
     if ("unloadDate" in patch) next.unloadDateISO = toISO(patch.unloadDate);
     await updateDoc(doc(db, COL, id), next);
@@ -166,25 +210,29 @@ export function SchedulesProvider({ children }) {
 
   const remove = useCallback(async (id) => {
     if (!id) return;
-    await deleteDoc(doc(db, COL, id));
-    // безопасно чистим и от архива, ако случайно съществува
-    try { await deleteDoc(doc(db, COL_ARCH, id)); } catch {}
+    try {
+      await deleteDoc(doc(db, COL, id));
+    } finally {
+      // безопасно чистим и от архива, ако случайно съществува
+      try { await deleteDoc(doc(db, COL_ARCH, id)); } catch {}
+    }
   }, []);
 
   // Архивиране / Деархивиране (move между колекции)
   const archiveById = useCallback(async (id) => {
     if (!id) return;
+    // ако вече е в архива — нищо не правим
+    if (isArchived(id)) return;
     const srcRef = doc(db, COL, id);
     const snap = await getDoc(srcRef);
     if (!snap.exists()) return;
     const data = snap.data() || {};
-    // преместване: задаваме същото id
     await setDoc(doc(db, COL_ARCH, id), {
       ...data,
       archivedAt: serverTimestamp(),
     });
     await deleteDoc(srcRef);
-  }, []);
+  }, [isArchived]);
 
   const unarchiveById = useCallback(async (id) => {
     if (!id) return;
@@ -195,9 +243,34 @@ export function SchedulesProvider({ children }) {
     await setDoc(doc(db, COL, id), {
       ...data,
       unarchivedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
     await deleteDoc(srcRef);
   }, []);
+
+  // Автоматично архивиране: изпълнени товари, по-стари от N дни
+  const archiveAuto = useCallback(
+    async ({ cutoffDays = 14 } = {}) => {
+      const now = today0();
+      const cutoffMs = cutoffDays * 24 * 60 * 60 * 1000;
+
+      const candidates = (list || []).filter((s) => {
+        const st = computeStatus(s.date, s.unloadDate);
+        if (st !== STATUS.DONE) return false;
+        const end = parseBGDate(s.unloadDate || s.date);
+        if (!end) return false;
+        return now.getTime() - end.getTime() >= cutoffMs;
+      });
+
+      if (!candidates.length) return 0;
+
+      await Promise.allSettled(
+        candidates.map((s) => archiveById(s.id))
+      );
+      return candidates.length;
+    },
+    [list, archiveById]
+  );
 
   const clone = useCallback(async (id) => {
     const src = (list || []).find((x) => x.id === id);
@@ -218,29 +291,34 @@ export function SchedulesProvider({ children }) {
     return await add(copy);
   }, [list, add]);
 
-  // copy helper
+  // copy helper (фиксиран ключ + fallback)
   const copyToClipboard = async (s) => {
+    const kmd = s.komandirovka || s.KMD || "—";
     const text = [
       `Клиент: ${s.company || "—"}`,
       `Релация: ${s.route || "—"}`,
       `Шофьор: ${s.driver || "—"}`,
       `Дати: ${s.date || "—"} – ${s.unloadDate || "—"}`,
-      `№: ${s.komandirovka || "—"}`,
-      `Бележки: ${s.notes || "—"}`,
+      `№: ${kmd}`,
+      `Бележки: ${s.notes || "—"}`
     ].join(" | ");
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        // no-op
+      }
     }
   };
 
-  // KMD: брояч в localStorage (оставяме както преди)
+  // KMD: (временно) локален месечен брояч — оставен за съвместимост
   const ymKey = (d = new Date()) => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -258,7 +336,6 @@ export function SchedulesProvider({ children }) {
     const dd = String(date.getDate()).padStart(2, "0");
     const mm = String(date.getMonth() + 1).padStart(2, "0");
     return `${number}/${dd}.${mm}`;
-    // пример: 223/17.09
   };
   const getNextKmd = ({ dateStr, commit } = { dateStr: null, commit: false }) => {
     const dt = parseBGDate(dateStr) || new Date();
@@ -270,18 +347,10 @@ export function SchedulesProvider({ children }) {
   };
 
   const recomputeStatuses = useCallback(() => {
-    // няма нужда — snapshot-ът вече ги преизчислява; оставяме за обратна съвместимост
     setList((prev) => (prev || []).map((s) => ({ ...s, status: computeStatus(s.date, s.unloadDate) })));
+    // подсети селекторите да се пресметнат наново
+    setNowTick((x) => x + 1);
   }, []);
-
-  // авто-обновяване на статусите при фокус на таба (съвместимост)
-  const onFocusRef = useRef(null);
-  useEffect(() => {
-    onFocusRef.current = () => recomputeStatuses();
-    const fn = () => onFocusRef.current && onFocusRef.current();
-    window.addEventListener("focus", fn);
-    return () => window.removeEventListener("focus", fn);
-  }, [recomputeStatuses]);
 
   const value = {
     // данни
@@ -297,6 +366,7 @@ export function SchedulesProvider({ children }) {
     archiveById,
     unarchiveById,
     isArchived,
+    archiveAuto,
     // CRUD
     add,
     bulkAdd,

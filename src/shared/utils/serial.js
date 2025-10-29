@@ -1,3 +1,5 @@
+// shared/utils/serial.js
+
 // Генерира пореден номер по година: К-2025-0001, К-2025-0002, ...
 // Държи последния номер в localStorage под ключ seq.kmdr.<year>
 export function nextKomandirovkaNumber() {

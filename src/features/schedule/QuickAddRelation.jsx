@@ -3,9 +3,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useDrivers } from "@/features/drivers/drivers.store.jsx";
 import { useSettings } from "@/features/settings/settings.store.jsx";
 import { useSchedules } from "./schedule.store.jsx";
+import { useCounters } from "@/features/counters/counters.store.jsx";
 import { toInputDate, toBG } from "../../shared/utils/dates.jsx";
 import { colorForDriver, colorForClient } from "./schedule.colors.js";
-import { nextKmdForDate } from "../../shared/utils/kmd.js";
 
 // ==== малки утилити ====
 const todayISO = () => toInputDate(new Date());
@@ -29,12 +29,18 @@ function AutoComplete({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState(value || "");
-  useEffect(() => { setQ(value || ""); }, [value]);
+  useEffect(() => {
+    setQ(value || "");
+  }, [value]);
 
   const filtered = useMemo(() => {
     const s = String(q || "").toLowerCase();
     return (options || [])
-      .map((o) => ({ raw: o, label: String(getLabel(o) ?? ""), val: getValue(o) ?? getLabel(o) }))
+      .map((o) => ({
+        raw: o,
+        label: String(getLabel(o) ?? ""),
+        val: getValue(o) ?? getLabel(o),
+      }))
       .filter((o) => o.label.toLowerCase().includes(s))
       .slice(0, 8);
   }, [q, options, getLabel, getValue]);
@@ -48,7 +54,11 @@ function AutoComplete({
         value={q}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
-        onChange={(e) => { const v = e.target.value; setQ(v); onChange && onChange(v); }}
+        onChange={(e) => {
+          const v = e.target.value;
+          setQ(v);
+          onChange && onChange(v);
+        }}
         autoComplete="off"
       />
       {open && !!filtered.length && (
@@ -59,7 +69,11 @@ function AutoComplete({
               type="button"
               className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-sm"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { setQ(o.label); onChange && onChange(o.val || o.label); setOpen(false); }}
+              onClick={() => {
+                setQ(o.label);
+                onChange && onChange(o.val || o.label);
+                setOpen(false);
+              }}
             >
               {o.label}
             </button>
@@ -71,7 +85,8 @@ function AutoComplete({
 }
 
 export default function QuickAddRelation() {
-  const S = useSchedules(); // вече пише към Firestore (realtime)
+  const S = useSchedules(); // пише към Firestore (realtime)
+  const C = useCounters();  // глобален брояч КМД (preview/commit)
 
   // данни от провайдърите (realtime)
   const { list: drivers } = useDrivers() || { list: [] };
@@ -80,23 +95,25 @@ export default function QuickAddRelation() {
   // форма: ПРАВ
   const [driver, setDriver] = useState("");
   const [client, setClient] = useState("");
-  const [route, setRoute]   = useState("");
-  const [start, setStart]   = useState(todayISO());
-  const [end, setEnd]       = useState(addDaysISO(todayISO(), 1));
-  const [notes, setNotes]   = useState("");
+  const [route, setRoute] = useState("");
+  const [start, setStart] = useState(todayISO());
+  const [end, setEnd] = useState(addDaysISO(todayISO(), 1));
+  const [notes, setNotes] = useState("");
   const [komDir, setKomDir] = useState("");
 
   // форма: ОБРАТЕН
   const [showReverse, setShowReverse] = useState(false);
   const [routeR, setRouteR] = useState("");
   const [startR, setStartR] = useState(addDaysISO(todayISO(), 1));
-  const [endR, setEndR]     = useState(addDaysISO(todayISO(), 2));
+  const [endR, setEndR] = useState(addDaysISO(todayISO(), 2));
   const [notesR, setNotesR] = useState("");
 
   // помощ: търсене на duration за релация
   const findRoute = (name) =>
     (routes || []).find(
-      (r) => (String(r.name || r.route || "").toLowerCase() === String(name || "").toLowerCase())
+      (r) =>
+        String(r.name || r.route || "").toLowerCase() ===
+        String(name || "").toLowerCase()
     );
 
   const suggestEndByRoute = (routeName, startISO) => {
@@ -106,28 +123,49 @@ export default function QuickAddRelation() {
   };
 
   // при смяна на релация → предложи край
-  useEffect(() => { if (route  && start)  setEnd (suggestEndByRoute(route,  start));  }, [route,  start]);
-  useEffect(() => { if (routeR && startR) setEndR(suggestEndByRoute(routeR, startR)); }, [routeR, startR]);
+  useEffect(() => {
+    if (route && start) setEnd(suggestEndByRoute(route, start));
+  }, [route, start]);
+  useEffect(() => {
+    if (routeR && startR) setEndR(suggestEndByRoute(routeR, startR));
+  }, [routeR, startR]);
 
   // КМД – следващ по ГОДИНА (на база стартова дата)
   const handleNextKmd = () => {
-    if (!start) return;
-    const bg = toBG(new Date(start));    // dd.mm.yyyy
-    setKomDir(nextKmdForDate(bg));       // напр. "223/17.09"
+    if (!start || !C?.nextKmd) return;
+    const bg = toBG(new Date(start)); // dd.mm.yyyy
+    const preview = C.nextKmd(bg, { commit: false }); // preview (без commit)
+    if (preview) setKomDir(preview);
   };
 
   const resetForm = () => {
-    setDriver(""); setClient(""); setRoute("");
-    setStart(todayISO()); setEnd(addDaysISO(todayISO(), 1));
-    setNotes(""); setKomDir("");
-    setShowReverse(false); setRouteR(""); setStartR(addDaysISO(todayISO(), 1)); setEndR(addDaysISO(todayISO(), 2)); setNotesR("");
+    setDriver("");
+    setClient("");
+    setRoute("");
+    setStart(todayISO());
+    setEnd(addDaysISO(todayISO(), 1));
+    setNotes("");
+    setKomDir("");
+    setShowReverse(false);
+    setRouteR("");
+    setStartR(addDaysISO(todayISO(), 1));
+    setEndR(addDaysISO(todayISO(), 2));
+    setNotesR("");
   };
 
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!driver || !client || !route || !start || !end) return;
 
-    const driverCompany = (drivers.find((d) => d.name === driver)?.company) || "";
+    const driverCompany =
+      drivers.find((d) => d.name === driver)?.company || "";
+
+    // KMD само за Прав – ако полето е празно, комитни следващия номер
+    let kmdForward = (komDir || "").trim();
+    if (!kmdForward && C?.nextKmd) {
+      const bg = toBG(new Date(start)); // dd.mm.yyyy
+      kmdForward = C.nextKmd(bg, { commit: true }) || "";
+    }
 
     // ПРАВ
     await S.add({
@@ -138,12 +176,12 @@ export default function QuickAddRelation() {
       date: toBG(new Date(start)),
       unloadDate: toBG(new Date(end)),
       notes,
-      komandirovka: komDir || "",
+      komandirovka: kmdForward, // само за Прав
       status: "Планирано",
       leg: "Прав",
     });
 
-    // ОБРАТЕН (ако е активиран)
+    // ОБРАТЕН (ако е активиран) — без КМД
     if (showReverse && routeR && startR && endR) {
       await S.add({
         driver,
@@ -164,15 +202,27 @@ export default function QuickAddRelation() {
 
   // списъци за autocomplete
   const driverNames = useMemo(
-    () => (drivers || []).map((d) => d.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "bg")),
+    () =>
+      (drivers || [])
+        .map((d) => d.name)
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, "bg")),
     [drivers]
   );
   const clientNames = useMemo(
-    () => (clients || []).map((c) => c.name || c.company || c.client || "").filter(Boolean).sort((a, b) => a.localeCompare(b, "bg")),
+    () =>
+      (clients || [])
+        .map((c) => c.name || c.company || c.client || "")
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, "bg")),
     [clients]
   );
   const routeNames = useMemo(
-    () => (routes || []).map((r) => r.name || r.route || "").filter(Boolean).sort((a, b) => a.localeCompare(b, "bg")),
+    () =>
+      (routes || [])
+        .map((r) => r.name || r.route || "")
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, "bg")),
     [routes]
   );
 
@@ -187,7 +237,9 @@ export default function QuickAddRelation() {
         <div className="grid grid-cols-12 gap-2 items-center">
           {/* Шофьор */}
           <div className="col-span-12 md:col-span-3 min-w-[220px]">
-            <label className="text-[11px] uppercase tracking-wide text-slate-500">Шофьор</label>
+            <label className="text-[11px] uppercase tracking-wide text-slate-500">
+              Шофьор
+            </label>
             <div className="mt-1" style={{ borderColor: drvColor }}>
               <AutoComplete
                 name="driver"
@@ -201,7 +253,9 @@ export default function QuickAddRelation() {
 
           {/* Клиент */}
           <div className="col-span-12 md:col-span-3 min-w-[220px]">
-            <label className="text-[11px] uppercase tracking-wide text-slate-500">Клиент</label>
+            <label className="text-[11px] uppercase tracking-wide text-slate-500">
+              Клиент
+            </label>
             <div className="mt-1" style={{ borderColor: cliColor }}>
               <AutoComplete
                 name="client"
@@ -215,7 +269,9 @@ export default function QuickAddRelation() {
 
           {/* Релация */}
           <div className="col-span-12 md:col-span-3 min-w-[220px]">
-            <label className="text-[11px] uppercase tracking-wide text-slate-500">Релация (Прав)</label>
+            <label className="text-[11px] uppercase tracking-wide text-slate-500">
+              Релация (Прав)
+            </label>
             <div className="mt-1">
               <AutoComplete
                 name="route"
@@ -230,7 +286,9 @@ export default function QuickAddRelation() {
           {/* Дати */}
           <div className="col-span-12 md:col-span-3 flex gap-3 items-end">
             <div className="flex-1">
-              <label className="text-[11px] uppercase tracking-wide text-slate-500">Начало</label>
+              <label className="text-[11px] uppercase tracking-wide text-slate-500">
+                Начало
+              </label>
               <input
                 type="date"
                 className={classInput + " mt-1 w-full"}
@@ -239,7 +297,9 @@ export default function QuickAddRelation() {
               />
             </div>
             <div className="flex-1">
-              <label className="text-[11px] uppercase tracking-wide text-slate-500">Край</label>
+              <label className="text-[11px] uppercase tracking-wide text-slate-500">
+                Край
+              </label>
               <input
                 type="date"
                 className={classInput + " mt-1 w-full"}
@@ -266,7 +326,11 @@ export default function QuickAddRelation() {
                 value={komDir}
                 onChange={(e) => setKomDir(e.target.value)}
               />
-              <button type="button" className="btn btn-ghost h-9 whitespace-nowrap" onClick={handleNextKmd}>
+              <button
+                type="button"
+                className="btn btn-ghost h-9 whitespace-nowrap"
+                onClick={handleNextKmd}
+              >
                 Вземи следващ №
               </button>
             </div>
@@ -275,11 +339,16 @@ export default function QuickAddRelation() {
               <button
                 type="button"
                 className="btn btn-ghost h-9"
-                onClick={() => { setShowReverse(true); setStartR(end); }}
+                onClick={() => {
+                  setShowReverse(true);
+                  setStartR(end);
+                }}
               >
                 Добави обратен
               </button>
-              <button type="submit" className="btn btn-primary h-9">+ Добави</button>
+              <button type="submit" className="btn btn-primary h-9">
+                + Добави
+              </button>
             </div>
           </div>
         </div>
@@ -288,7 +357,9 @@ export default function QuickAddRelation() {
         {showReverse && (
           <div className="mt-3 grid grid-cols-12 gap-2 items-center border-t pt-3">
             <div className="col-span-12 md:col-span-3 min-w-[220px]">
-              <label className="text-[11px] uppercase tracking-wide text-slate-500">Релация (Обратен)</label>
+              <label className="text-[11px] uppercase tracking-wide text-slate-500">
+                Релация (Обратен)
+              </label>
               <AutoComplete
                 name="routeR"
                 value={routeR}
@@ -298,16 +369,37 @@ export default function QuickAddRelation() {
               />
             </div>
             <div className="col-span-6 md:col-span-2">
-              <label className="text-[11px] uppercase tracking-wide text-slate-500">Начало</label>
-              <input type="date" className={classInput + " mt-1"} value={startR} onChange={(e) => setStartR(e.target.value)} />
+              <label className="text-[11px] uppercase tracking-wide text-slate-500">
+                Начало
+              </label>
+              <input
+                type="date"
+                className={classInput + " mt-1"}
+                value={startR}
+                onChange={(e) => setStartR(e.target.value)}
+              />
             </div>
             <div className="col-span-6 md:col-span-2">
-              <label className="text-[11px] uppercase tracking-wide text-slate-500">Край</label>
-              <input type="date" className={classInput + " mt-1"} value={endR} onChange={(e) => setEndR(e.target.value)} />
+              <label className="text-[11px] uppercase tracking-wide text-slate-500">
+                Край
+              </label>
+              <input
+                type="date"
+                className={classInput + " mt-1"}
+                value={endR}
+                onChange={(e) => setEndR(e.target.value)}
+              />
             </div>
             <div className="col-span-12 md:col-span-5">
-              <label className="text-[11px] uppercase tracking-wide text-slate-500">Бележки (обратен)</label>
-              <input className={classInput + " mt-1"} value={notesR} onChange={(e) => setNotesR(e.target.value)} placeholder="Бележки (по желание)" />
+              <label className="text-[11px] uppercase tracking-wide text-slate-500">
+                Бележки (обратен)
+              </label>
+              <input
+                className={classInput + " mt-1"}
+                value={notesR}
+                onChange={(e) => setNotesR(e.target.value)}
+                placeholder="Бележки (по желание)"
+              />
             </div>
           </div>
         )}

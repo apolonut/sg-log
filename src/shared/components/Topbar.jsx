@@ -58,6 +58,7 @@ export default function Topbar({ title = "", onHamburger }) {
           <GlobalSearch />
           <NotificationsBell
             items={N?.list || []}
+            count={N?.unreadCount ?? 0}
             onMarkAllRead={N?.markAllRead}
             className="text-[var(--brand-on,white)] hover:text-slate-100"
           />

@@ -6,6 +6,7 @@ import ScheduleTimeline from "./ScheduleTimeline.jsx";
 import QuickAddRelation from "./QuickAddRelation.jsx";
 import EditScheduleModal from "./EditScheduleModal.jsx";
 import Modal from "@/shared/components/Modal.jsx";
+import { parseBGDate } from "@/shared/utils/dates.jsx";
 
 // Малки вътрешни табове
 function InnerTabs({ active, onChange }) {
@@ -222,7 +223,7 @@ function ArchiveModal({ open, onClose }) {
 }
 
 function Inner() {
-  const { list, getPastCount, archived, archiveAuto } = useSchedules();
+  const { list, getPastCount, archived, archiveById, isArchived } = useSchedules();
   const [tab, setTab] = useState("list");       // "list" | "calendar"
   const [open, setOpen] = useState(false);      // модал за добавяне/редакция
   const [current, setCurrent] = useState(null); // текущ товар за редакция
@@ -236,6 +237,30 @@ function Inner() {
 
   const pastCount = getPastCount();
   const archivedCount = archived?.length || 0;
+
+  // Локален „Авто архивирай“ — архивация на изпълнени товари по cutoffDays
+  const archiveAuto = async ({ cutoffDays = 14 } = {}) => {
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - cutoffDays);
+
+    const candidates = (list || []).filter((s) => {
+      // Взимаме разтоварването; ако липсва — ползваме началната дата
+      const end = parseBGDate(s.unloadDate || s.date);
+      if (!end) return false;
+      // Смятаме за „изпълнено“, ако е в миналото (cutoff) — status вече се изчислява в стора, но пазим логика тук
+      const isOldEnough = end <= cutoff;
+      return isOldEnough && !isArchived?.(s.id);
+    });
+
+    for (const c of candidates) {
+      try {
+        await archiveById(c.id);
+      } catch (e) {
+        console.error("[schedule] auto-archive error for", c.id, e);
+      }
+    }
+  };
 
   return (
     <div className="p-4 space-y-6">

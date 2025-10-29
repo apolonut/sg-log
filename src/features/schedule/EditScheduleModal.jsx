@@ -4,7 +4,8 @@ import Modal from "../../shared/components/Modal.jsx";
 import { useSchedules } from "./schedule.store.jsx";
 import { useDrivers } from "@/features/drivers/drivers.store.jsx";
 import { useSettings } from "@/features/settings/settings.store.jsx";
-import { toInputDate, fromInputDate } from "../../shared/utils/dates.jsx";
+import { useCounters } from "@/features/counters/counters.store.jsx";
+import { toInputDate, fromInputDate, toBG } from "../../shared/utils/dates.jsx";
 
 // безопасно BG -> ISO за <input type="date">
 const safeToInput = (bg) => (bg && typeof bg === "string" ? toInputDate(bg) : "");
@@ -13,7 +14,7 @@ const safeToInput = (bg) => (bg && typeof bg === "string" ? toInputDate(bg) : ""
 const copyText = async (text) => {
   try {
     await navigator.clipboard.writeText(text);
-  } catch {
+  } catch (e) {
     const ta = document.createElement("textarea");
     ta.value = text || "";
     document.body.appendChild(ta);
@@ -23,15 +24,19 @@ const copyText = async (text) => {
   }
 };
 
+// dd.MM.yyyy от Date (fallback за празна начална дата)
+const todayBG = () => toBG(new Date());
+
 export default function EditScheduleModal({
   open,
   onClose,
   value = null, // null => „Нов товар”
 }) {
   const S = useSchedules();
+  const C = useCounters();
   if (!S) return null;
 
-  const { add, update, remove, getNextKmd } = S;
+  const { add, update, remove } = S;
 
   // справочници за autocomplete
   const { list: drivers } = useDrivers() || { list: [] };
@@ -76,18 +81,22 @@ export default function EditScheduleModal({
 
   const isEdit = !!id;
 
-  // запазване (с commit на КМД, ако липсва)
+  // запазване (с commit на КМД, ако липсва и е "Прав")
   const handleSave = async () => {
     if (!company.trim() || !route.trim()) return;
 
     // изчисляваме driverCompany
     const driverCompany = driver ? (drivers.find(d => d.name === driver)?.company || "") : "";
 
-    // ако няма въведен № → вземи и КОМИТНИ следващия (годишен) според началната дата
+    // ако няма въведен № и е "Прав" → claim следващия (годишен) според началната дата (или днес)
     let kmd = (komandirovka || "").trim();
-    if (!kmd && getNextKmd) {
-      const dateStrBG = dateISO ? fromInputDate(dateISO) : "";
-      kmd = getNextKmd({ dateStr: dateStrBG, commit: true }) || "";
+    if (!kmd && C?.getNextKmd && String(leg).trim() === "Прав") {
+      const bgStr = dateISO ? fromInputDate(dateISO) : todayBG(); // dd.mm.yyyy
+      try {
+        kmd = (await C.getNextKmd({ dateStr: bgStr, leg: "Прав", commit: true })) || "";
+      } catch (e) {
+        console.error("KMD claim failed:", e);
+      }
     }
 
     const payload = {
@@ -103,19 +112,27 @@ export default function EditScheduleModal({
       driverCompany,
     };
 
-    if (isEdit) {
-      await update(id, payload);
-    } else {
-      await add(payload);
+    try {
+      if (isEdit) {
+        await update(id, payload);
+      } else {
+        await add(payload);
+      }
+      onClose?.();
+    } catch (e) {
+      console.error("Save schedule failed:", e);
     }
-    onClose?.();
   };
 
   // изтриване
   const handleDelete = async () => {
     if (!isEdit) return;
-    await remove(id);
-    onClose?.();
+    try {
+      await remove(id);
+      onClose?.();
+    } catch (e) {
+      console.error("Delete schedule failed:", e);
+    }
   };
 
   // дублиране: релация+дати; без шофьор, № и бележки
@@ -132,16 +149,24 @@ export default function EditScheduleModal({
       status: value?.status || "Планирано",
       driverCompany: "",
     };
-    await add(payload);
+    try {
+      await add(payload);
+    } catch (e) {
+      console.error("Duplicate schedule failed:", e);
+    }
   };
 
-  // копиране на товар
+  // копиране на товар (за бутона "Копирай товар")
   const handleCopy = async () => {
     const txt = [
       `Клиент: ${company || "—"}`,
       `Релация: ${route || "—"}`,
       `Шофьор: ${driver || "—"}`,
-      `Дати: ${value?.date || (dateISO ? fromInputDate(dateISO) : "—")} – ${value?.unloadDate || (unloadISO ? fromInputDate(unloadISO) : "—")}`,
+      `Дати: ${
+        value?.date || (dateISO ? fromInputDate(dateISO) : "—")
+      } – ${
+        value?.unloadDate || (unloadISO ? fromInputDate(unloadISO) : "—")
+      }`,
       `№: ${komandirovka || "—"}`,
       `Бележки: ${notes || "—"}`
     ].join(" | ");
@@ -149,11 +174,23 @@ export default function EditScheduleModal({
   };
 
   // „Следв. №“ — показва preview (без commit). Истинският commit става при Save, ако полето е празно.
-  const handleNextKmd = () => {
-    if (!getNextKmd) return;
-    const dateStrBG = dateISO ? fromInputDate(dateISO) : "";
-    const preview = getNextKmd({ dateStr: dateStrBG, commit: false });
-    if (preview) setKmd(preview);
+  const [nextBusy, setNextBusy] = useState(false);
+  const handleNextKmd = async () => {
+    if (!C?.getNextKmd) return;
+    if (String(leg).trim() !== "Прав") return; // само за „Прав“
+
+    // ако няма начална дата → ползвай днешна
+    const bgStr = dateISO ? fromInputDate(dateISO) : todayBG(); // dd.mm.yyyy
+
+    setNextBusy(true);
+    try {
+      const preview = await C.getNextKmd({ dateStr: bgStr, leg: "Прав", commit: false });
+      if (preview) setKmd(preview);
+    } catch (e) {
+      console.error("KMD preview failed:", e);
+    } finally {
+      setNextBusy(false);
+    }
   };
 
   if (!open) return null;
@@ -250,7 +287,15 @@ export default function EditScheduleModal({
               value={komandirovka}
               onChange={(e)=>setKmd(e.target.value)}
             />
-            <button type="button" className="btn btn-ghost" onClick={handleNextKmd}>Следв. №</button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={handleNextKmd}
+              title="Преглед на следващ № (без запис)"
+              disabled={String(leg).trim() !== "Прав" || nextBusy}
+            >
+              {nextBusy ? "..." : "Следв. №"}
+            </button>
           </div>
         </div>
 

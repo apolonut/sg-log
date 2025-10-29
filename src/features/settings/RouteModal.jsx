@@ -16,24 +16,19 @@ export default function RouteModal({
 
   // ВАЖНО: безопасно взимане на контекста (може да липсва)
   let settings = null;
-  try { settings = useSettings?.(); } catch { /* no provider - fine */ }
+  try { settings = useSettings?.(); } catch { /* no provider - ok */ }
 
-  // Клиентите идват по следния приоритет:
-  // 1) clientsOverride проп, ако е подаден;
-  // 2) от SettingsProvider (sorted.clients), ако има провайдър;
-  // 3) иначе — празен масив (без да чупим)
+  // Клиентите:
   const clients = clientsOverride ?? settings?.sorted?.clients ?? [];
 
   // --- форма: текущи стойности ---
   const [name, setName] = useState("");
-  const [distance, setDistance] = useState("");
-
-  // Помощник: генериране на име „От → До“
+  const [distance, setDistance] = useState("");   // string (валидира се)
   const [fromCity, setFromCity] = useState("");
   const [toCity, setToCity] = useState("");
-
-  // ново: свързани клиенти
   const [clientIds, setClientIds] = useState([]); // string[]
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
   const nameRef = useRef(null);
 
@@ -42,12 +37,16 @@ export default function RouteModal({
     if (!open) return;
 
     setName(value?.name || value?.fromTo || "");
-    setDistance(value?.distance ?? value?.km ?? "");
+    // приеми null/празно за км
+    const km = value?.distance ?? value?.km;
+    setDistance(km === null || km === undefined || km === "" ? "" : String(km));
 
     setFromCity("");
     setToCity("");
 
     setClientIds(Array.isArray(value?.clientIds) ? value.clientIds.filter(Boolean) : []);
+    setSaving(false);
+    setErrorMsg("");
 
     // autofocus
     setTimeout(() => nameRef.current?.focus(), 50);
@@ -55,13 +54,22 @@ export default function RouteModal({
 
   // валидации
   const nameError = useMemo(() => (!name.trim() ? "Въведи име." : ""), [name]);
-  const kmError = useMemo(() => {
-    if (distance === "" || distance === null || distance === undefined) return "";
-    return /^\d+(\.\d+)?$/.test(String(distance)) ? "" : "Км трябва да е число.";
-  }, [distance]);
-  const canSave = !nameError && !kmError;
 
-  // генериране
+  // позволи десетични със запетайка ИЛИ точка
+  const distanceNormalized = useMemo(() => {
+    const s = String(distance ?? "").trim().replace(",", ".");
+    return s;
+  }, [distance]);
+
+  const kmError = useMemo(() => {
+    if (distanceNormalized === "") return ""; // опционално поле
+    const n = Number(distanceNormalized);
+    return Number.isFinite(n) && n >= 0 ? "" : "Км трябва да е неотрицателно число.";
+  }, [distanceNormalized]);
+
+  const canSave = !nameError && !kmError && !saving;
+
+  // генериране на име
   const canGenerate = fromCity.trim() && toCity.trim();
   const generatedName = `${fromCity.trim()} → ${toCity.trim()}`;
 
@@ -73,31 +81,54 @@ export default function RouteModal({
 
   // helpers за мултиселекта
   const toggleClient = (id) => {
-    setClientIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setClientIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
   const clearClients = () => setClientIds([]);
   const selectAllClients = () => setClientIds(clients.map((c) => c.id));
 
-  // запис
-  const handleSubmit = (e) => {
+  // запис (изчаква onSave и показва грешка при fail)
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!canSave) return;
 
-    onSave?.({
-      id: value?.id,
-      name: name.trim(),
-      distance: distance === "" ? "" : String(distance).trim(),
-      clientIds: Array.isArray(clientIds) ? clientIds : [],
-    });
+    setSaving(true);
+    setErrorMsg("");
+
+    try {
+      // конверсия: празно => null; иначе число
+      const km =
+        distanceNormalized === "" ? null : Number(distanceNormalized);
+
+      await onSave?.({
+        id: value?.id,
+        name: name.trim(),
+        distance: km,                 // number | null
+        clientIds: Array.isArray(clientIds) ? clientIds : [],
+      });
+
+      onClose?.();
+    } catch (err) {
+      console.error("[RouteModal] save error:", err);
+      setErrorMsg("Неуспешно записване. Моля, опитайте отново.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   // изтриване
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!isEdit) return;
     if (confirm("Сигурни ли сте, че искате да изтриете тази релация?")) {
-      onDelete?.(value.id);
+      try {
+        setSaving(true);
+        await onDelete?.(value.id);
+        onClose?.();
+      } catch (err) {
+        console.error("[RouteModal] delete error:", err);
+        setErrorMsg("Неуспешно изтриване. Моля, опитайте отново.");
+      } finally {
+        setSaving(false);
+      }
     }
   };
 
@@ -105,7 +136,9 @@ export default function RouteModal({
 
   return (
     <Modal open={open} onClose={onClose}>
-      <h2 className="text-2xl font-bold mb-4">{isEdit ? "Редакция на релация" : "Нова релация"}</h2>
+      <h2 className="text-2xl font-bold mb-4">
+        {isEdit ? "Редакция на релация" : "Нова релация"}
+      </h2>
 
       <form
         onSubmit={handleSubmit}
@@ -123,6 +156,7 @@ export default function RouteModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
+              disabled={saving}
             />
             {nameError && <div className="text-xs text-red-600 mt-1">{nameError}</div>}
           </div>
@@ -130,10 +164,11 @@ export default function RouteModal({
             <label className="text-xs text-slate-500">Км</label>
             <input
               className={`input mt-1 ${kmError ? "border-amber-300" : ""}`}
-              placeholder="напр. 380"
+              placeholder="напр. 380 или 380,5"
               value={distance}
               onChange={(e) => setDistance(e.target.value)}
               inputMode="decimal"
+              disabled={saving}
             />
             {kmError && <div className="text-xs text-amber-600 mt-1">{kmError}</div>}
           </div>
@@ -143,17 +178,17 @@ export default function RouteModal({
         <div className="grid md:grid-cols-3 gap-3">
           <div>
             <label className="text-xs text-slate-500">От град</label>
-            <input className="input mt-1" value={fromCity} onChange={(e) => setFromCity(e.target.value)} />
+            <input className="input mt-1" value={fromCity} onChange={(e) => setFromCity(e.target.value)} disabled={saving}/>
           </div>
           <div>
             <label className="text-xs text-slate-500">До град</label>
-            <input className="input mt-1" value={toCity} onChange={(e) => setToCity(e.target.value)} />
+            <input className="input mt-1" value={toCity} onChange={(e) => setToCity(e.target.value)} disabled={saving}/>
           </div>
           <div className="flex items-end">
             <button
               type="button"
               className="btn btn-ghost w-full"
-              disabled={!canGenerate}
+              disabled={!canGenerate || saving}
               onClick={() => setName(generatedName)}
               title="Попълни името по шаблон От → До"
             >
@@ -167,8 +202,8 @@ export default function RouteModal({
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs text-slate-500">Свързани клиенти</label>
             <div className="flex gap-2">
-              <button type="button" className="btn btn-ghost h-8" onClick={clearClients}>Изчисти</button>
-              <button type="button" className="btn btn-ghost h-8" onClick={selectAllClients} disabled={!clients.length}>
+              <button type="button" className="btn btn-ghost h-8" onClick={clearClients} disabled={saving}>Изчисти</button>
+              <button type="button" className="btn btn-ghost h-8" onClick={selectAllClients} disabled={!clients.length || saving}>
                 Избери всички
               </button>
             </div>
@@ -197,6 +232,7 @@ export default function RouteModal({
                         className="checkbox"
                         checked={checked}
                         onChange={() => toggleClient(c.id)}
+                        disabled={saving}
                       />
                       <label htmlFor={`cli-${c.id}`} className="text-sm text-slate-700 cursor-pointer">
                         {c.name}
@@ -211,21 +247,26 @@ export default function RouteModal({
           </div>
         </div>
 
+        {/* Грешка */}
+        {errorMsg && (
+          <div className="text-sm text-red-600">{errorMsg}</div>
+        )}
+
         {/* Ред 4: бутони */}
         <div className="flex justify-between items-center gap-2 pt-2">
           <div>
             {isEdit && (
-              <button type="button" className="btn btn-danger" onClick={handleDelete}>
+              <button type="button" className="btn btn-danger" onClick={handleDelete} disabled={saving}>
                 Изтрий
               </button>
             )}
           </div>
           <div className="flex gap-2">
-            <button type="button" className="btn btn-ghost" onClick={onClose}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>
               Отказ (Esc)
             </button>
             <button type="submit" className="btn btn-primary" disabled={!canSave}>
-              {isEdit ? "Запази" : "Добави"}
+              {saving ? "Запис..." : isEdit ? "Запази" : "Добави"}
             </button>
           </div>
         </div>
