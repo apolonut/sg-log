@@ -2,9 +2,11 @@
 import React from "react";
 import Modal from "@/shared/components/Modal.jsx";
 import { toInputDate, fromInputDate } from "@/shared/utils/dates";
+import { useSettings } from "@/features/settings/settings.store.jsx"; // ⬅️ за фирмите
 
 export default function EditTankerModal({ open, onClose, value, onSave, onDelete }) {
   const isEdit = !!value?.id;
+  const { subcontractors = [] } = useSettings() || {};
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -13,6 +15,7 @@ export default function EditTankerModal({ open, onClose, value, onSave, onDelete
       id: value?.id,
       type: "tanker", // маркираме го като цистерна
       number: f.number.value.trim(),
+      company: f.company.value.trim(), // празно => SG (store нормализира)
       insuranceExpiry: f.ins.value ? fromInputDate(f.ins.value) : "",
       adrExpiry: f.adr.value ? fromInputDate(f.adr.value) : "",
       inspectionExpiry: f.inspection.value ? fromInputDate(f.inspection.value) : "",
@@ -43,6 +46,19 @@ export default function EditTankerModal({ open, onClose, value, onSave, onDelete
           defaultValue={value?.number || ""}
           required
         />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-slate-500">Фирма (празно = SG)</label>
+            <select name="company" className="input" defaultValue={value?.company && value.company !== "SG" ? value.company : ""}>
+              <option value="">— без фирма (SG) —</option>
+              {subcontractors.map((c) => (
+                <option key={c.id || c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div />
+        </div>
 
         <div className="grid grid-cols-3 gap-3">
           <div>

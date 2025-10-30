@@ -2,35 +2,37 @@
 import React, { useEffect, useState } from "react";
 import Modal from "@/shared/components/Modal.jsx";
 import { toInputDate, fromInputDate } from "@/shared/utils/dates";
+import { useSettings } from "@/features/settings/settings.store.jsx"; // ⬅️ за списъка с фирми
 
 export default function EditTruckModal({
   open,
   onClose,
-  value,                 // { id?, number?, insuranceExpiry?, adrExpiry?, inspectionExpiry? }
+  value,                 // { id?, number?, insuranceExpiry?, adrExpiry?, inspectionExpiry?, company? }
   onSave,
   onDelete,              // (id, type) => void
-  type = "truck",        // "truck" | "tanker"  ← ВАЖНО: подаваме го от TehnikaTab
-  isEdit: isEditProp,    // по избор; ако липсва, падаме към !!value?.id
+  type = "truck",        // "truck" | "tanker"
+  isEdit: isEditProp,    // optional
 }) {
   const isEdit = isEditProp ?? !!value?.id;
+  const { subcontractors = [] } = useSettings() || {};
 
   const labels = type === "tanker"
     ? { new: "Нова цистерна", edit: "Редакция на цистерна" }
     : { new: "Нов влекач",    edit: "Редакция на влекач" };
 
-  // Контролирани полета (няма да „залепват“ между отваряния)
   const [number, setNumber] = useState("");
   const [ins, setIns] = useState("");
   const [adr, setAdr] = useState("");
   const [inspection, setInspection] = useState("");
+  const [company, setCompany] = useState(""); // "" => SG
 
-  // Ресет/хидратиране при отваряне или смяна на value/type
   useEffect(() => {
     if (!open) return;
     setNumber(value?.number || "");
     setIns(toInputDate(value?.insuranceExpiry || ""));
     setAdr(toInputDate(value?.adrExpiry || ""));
     setInspection(toInputDate(value?.inspectionExpiry || ""));
+    setCompany(value?.company && value.company !== "SG" ? value.company : "");
   }, [open, value?.id, type]);
 
   const handleSubmit = (e) => {
@@ -39,6 +41,7 @@ export default function EditTruckModal({
       id: value?.id,
       type,
       number: (number || "").trim(),
+      company: (company || "").trim(), // празно => SG (store нормализира)
       insuranceExpiry: ins ? fromInputDate(ins) : "",
       adrExpiry: adr ? fromInputDate(adr) : "",
       inspectionExpiry: inspection ? fromInputDate(inspection) : "",
@@ -66,6 +69,19 @@ export default function EditTruckModal({
           onChange={(e) => setNumber(e.target.value)}
           required
         />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-slate-500">Фирма (празно = SG)</label>
+            <select className="input" value={company} onChange={(e)=>setCompany(e.target.value)}>
+              <option value="">— без фирма (SG) —</option>
+              {subcontractors.map((c) => (
+                <option key={c.id || c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div />
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>

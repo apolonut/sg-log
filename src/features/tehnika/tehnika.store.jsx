@@ -38,6 +38,8 @@ const toISO = (bg) => {
 const normalizeItem = (raw = {}, defType = "truck") => {
   const number = String(raw.number || "").trim();
   const type = String(raw.type || defType).trim();
+  // ⬇️ ново: фирма (празно => "SG")
+  const company = (raw.company && String(raw.company).trim()) || "SG";
 
   const insuranceExpiry = String(raw.insuranceExpiry || raw.goExpiry || "").trim();
   const adrExpiry        = String(raw.adrExpiry || "").trim();
@@ -50,6 +52,7 @@ const normalizeItem = (raw = {}, defType = "truck") => {
   return {
     number,
     type,
+    company,
 
     // ГО / ADR / Преглед
     insuranceExpiry: insuranceExpiry || "",
@@ -61,7 +64,7 @@ const normalizeItem = (raw = {}, defType = "truck") => {
     inspectionExpiry: inspectionExpiry || "",
     inspectionExpiryISO: inspectionExpiryISO || null,
 
-    // доп. полета (ако решиш да ги ползваш по-нататък)
+    // доп. полета (остават, ако решиш да ги ползваш)
     brand: String(raw.brand || "").trim(),
     model: String(raw.model || "").trim(),
     year: raw.year || "",

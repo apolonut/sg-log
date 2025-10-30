@@ -4,6 +4,7 @@ import EditTruckModal from "./EditTruckModal.jsx";
 import EditTankerModal from "./EditTankerModal.jsx";
 import { checkExpiry } from "@/shared/utils/dates";
 import { useTehnika } from "./tehnika.store.jsx";
+import Tabs from "@/shared/components/Tabs.jsx"; // ⬅️ ново: табове SG/Подизпълнители
 
 // Малък бейдж за статус по дата
 const StatusBadge = ({ date }) => {
@@ -22,7 +23,7 @@ const StatusBadge = ({ date }) => {
 };
 
 // Универсална таблица (за влекачи и цистерни)
-function Table({ title, items, onEdit, dense = true }) {
+function Table({ title, items, onEdit, dense = true, showCompany = false }) {
   const rows = useMemo(() => {
     return (items || []).map((t, i) => {
       const kind = t.type || title || "item";
@@ -30,6 +31,7 @@ function Table({ title, items, onEdit, dense = true }) {
       return {
         key,
         number: t.number || "—",
+        company: t.company || "SG",
         adrExpiry: t.adrExpiry || "",
         insurance: t.insuranceExpiry || t.goExpiry || "",
         inspection: t.inspectionExpiry || t.techExpiry || "",
@@ -48,6 +50,7 @@ function Table({ title, items, onEdit, dense = true }) {
         <thead>
           <tr className="bg-slate-50 text-sm">
             <th className={thCls}>Номер</th>
+            {showCompany && <th className={thCls}>Фирма</th>}
             <th className={thCls}>ГО</th>
             <th className={thCls}>Преглед</th>
             <th className={thCls}>ADR</th>
@@ -58,6 +61,7 @@ function Table({ title, items, onEdit, dense = true }) {
           {rows.map((r) => (
             <tr key={r.key} className="hover:bg-slate-50">
               <td className={`${tdCls} font-medium whitespace-nowrap`}>{r.number}</td>
+              {showCompany && <td className={`${tdCls} text-sm`}>{r.company}</td>}
               <td className={`${tdCls} text-sm`}>
                 <div className="flex items-center gap-2">
                   <StatusBadge date={r.insurance} />
@@ -88,7 +92,7 @@ function Table({ title, items, onEdit, dense = true }) {
           ))}
           {!rows.length && (
             <tr>
-              <td colSpan={5} className="text-center text-slate-400 py-6">Няма записи.</td>
+              <td colSpan={showCompany ? 6 : 5} className="text-center text-slate-400 py-6">Няма записи.</td>
             </tr>
           )}
         </tbody>
@@ -98,7 +102,6 @@ function Table({ title, items, onEdit, dense = true }) {
 }
 
 export default function TehnikaTab() {
-  // 🔗 Взимаме live данните и CRUD от Firestore store-а
   const {
     trucks,
     tankers,
@@ -108,55 +111,112 @@ export default function TehnikaTab() {
     removeTanker,
   } = useTehnika();
 
-  const [modal, setModal] = useState({ open: false, value: null, kind: "truck" }); // "truck" | "tanker"
+  const [active, setActive] = useState("sg"); // "sg" | "sub"
+  const [q, setQ] = useState("");
+  const [modal, setModal] = useState({ open: false, value: null, kind: "truck" });
 
-  // Нов запис (празни полета)
   const openNew = (kind) => setModal({ open: true, value: null, kind });
-
-  // Редакция – просто подаваме текущата стойност
-  const openEditTruck = (value) => {
-    setModal({ open: true, value: { ...value, type: "truck" }, kind: "truck" });
-  };
-  const openEditTanker = (value) => {
-    setModal({ open: true, value: { ...value, type: "tanker" }, kind: "tanker" });
-  };
-
+  const openEditTruck = (value) => setModal({ open: true, value: { ...value, type: "truck" }, kind: "truck" });
+  const openEditTanker = (value) => setModal({ open: true, value: { ...value, type: "tanker" }, kind: "tanker" });
   const close = () => setModal({ open: false, value: null, kind: "truck" });
 
-  // Save/Delete → Firestore
   const handleSave = async (data) => {
     const kind = modal.kind || data?.type || "truck";
-    if (kind === "tanker") {
-      await upsertTanker(data);
-    } else {
-      await upsertTruck(data);
-    }
-    close(); // UI ще се обнови от onSnapshot
+    if (kind === "tanker") await upsertTanker(data);
+    else await upsertTruck(data);
+    close();
   };
-
   const handleDelete = async (id, type) => {
     if (!id) return;
     if (type === "tanker") await removeTanker(id);
-    else                   await removeTruck(id);
-    close(); // UI ще се обнови от onSnapshot
+    else await removeTruck(id);
+    close();
   };
+
+  const filterQ = (arr) =>
+    arr.filter((x) =>
+      !q ||
+      (x.number || "").toLowerCase().includes(q.toLowerCase()) ||
+      (x.company || "SG").toLowerCase().includes(q.toLowerCase())
+    );
+
+  // Разделение SG / Подизпълнители
+  const sgTrucks   = useMemo(() => filterQ((trucks || []).filter(t => (t.company || "SG") === "SG")), [trucks, q]);
+  const sgTankers  = useMemo(() => filterQ((tankers || []).filter(t => (t.company || "SG") === "SG")), [tankers, q]);
+  const subTrucks  = useMemo(() => filterQ((trucks || []).filter(t => (t.company || "SG") !== "SG")), [trucks, q]);
+  const subTankers = useMemo(() => filterQ((tankers || []).filter(t => (t.company || "SG") !== "SG")), [tankers, q]);
+
+  // Групиране по фирма за подизпълнители
+  const subGrouped = useMemo(() => {
+    const acc = {};
+    [...subTrucks, ...subTankers].forEach((item) => {
+      const key = item.company || "—";
+      (acc[key] ||= []).push(item);
+    });
+    Object.keys(acc).forEach((k) => {
+      acc[k].sort((a, b) => (a.number || "").localeCompare(b.number || "", "bg"));
+    });
+    return acc;
+  }, [subTrucks, subTankers]);
 
   return (
     <div className="space-y-4">
       {/* Заглавие + действия */}
       <div className="flex items-center justify-between">
         <div className="text-lg font-bold">Техника</div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <input
+            className="input w-64"
+            placeholder="Търсене (номер, фирма)…"
+            value={q}
+            onChange={(e)=>setQ(e.target.value)}
+          />
           <button className="btn btn-ghost"   onClick={() => openNew("truck")}>+ Влекач</button>
           <button className="btn btn-primary" onClick={() => openNew("tanker")}>+ Цистерна</button>
         </div>
       </div>
 
-      {/* Две колони */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <Table title="Влекачи"  items={trucks}  onEdit={openEditTruck}  dense />
-        <Table title="Цистерни" items={tankers} onEdit={openEditTanker} dense />
-      </div>
+      {/* Табове SG / Подизпълнители */}
+      <Tabs
+        active={active}
+        onChange={setActive}
+        items={[
+          { key: "sg",  label: "SG" },
+          { key: "sub", label: "Подизпълнители" },
+        ]}
+      />
+
+      {active === "sg" ? (
+        <div className="grid md:grid-cols-2 gap-6">
+          <Table title="SG Влекачи"  items={sgTrucks}  onEdit={openEditTruck}  dense />
+          <Table title="SG Цистерни" items={sgTankers} onEdit={openEditTanker} dense />
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {Object.keys(subGrouped).sort((a,b)=>a.localeCompare(b,"bg")).map((company) => {
+            const items = subGrouped[company];
+            const trucksOnly  = items.filter(i => i.type === "truck");
+            const tankersOnly = items.filter(i => i.type === "tanker");
+            return (
+              <div key={company} className="space-y-3">
+                <h3 className="text-lg font-bold">
+                  {company} <span className="text-sm text-slate-500">({items.length})</span>
+                </h3>
+                {!!trucksOnly.length && (
+                  <Table title="Влекачи" items={trucksOnly} onEdit={openEditTruck} dense showCompany />
+                )}
+                {!!tankersOnly.length && (
+                  <Table title="Цистерни" items={tankersOnly} onEdit={openEditTanker} dense showCompany />
+                )}
+                {!trucksOnly.length && !tankersOnly.length && (
+                  <div className="card text-center text-slate-400">Няма техника.</div>
+                )}
+              </div>
+            );
+          })}
+          {!Object.keys(subGrouped).length && <div className="card text-center text-slate-400">Няма подизпълнители.</div>}
+        </div>
+      )}
 
       {/* Рендер на правилния модал */}
       {modal.kind === "tanker" ? (
