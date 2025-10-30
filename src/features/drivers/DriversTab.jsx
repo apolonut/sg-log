@@ -23,19 +23,29 @@ const copyText = async (text) => {
 
 // мини компоненти
 function DocBadge({ label, date }) {
-  const x = checkExpiry(date);
+  const x = checkExpiry(date); // { status: 'valid' | 'expiring-soon' | 'expired' | 'unknown', days?: number }
   const cls =
-    x.status === "expired" ? "bg-red-100 text-red-700" :
-    x.status === "expiring-soon" ? "bg-yellow-100 text-yellow-700" :
-    x.status === "valid" ? "bg-green-100 text-green-700" :
-    "bg-slate-100 text-slate-700";
-  const text =
-    x.status === "expired" ? `${label}: изтекъл` :
-    x.status === "expiring-soon" ? `${label}: ${x.days} дни` :
-    x.status === "valid" ? `${label}: ок` :
-    `${label}: н/д`;
-  return <span className={`text-xs px-2 py-0.5 rounded ${cls}`}>{text}</span>;
+    x.status === "expired"        ? "bg-red-100 text-red-700" :
+    x.status === "expiring-soon"  ? "bg-yellow-100 text-yellow-700" :
+    x.status === "valid"          ? "bg-green-100 text-green-700" :
+                                    "bg-slate-100 text-slate-700";
+
+  // показваме винаги датата (ако липсва -> н/д), + кратък статут
+  const statusShort =
+    x.status === "expired"        ? "· изтекъл" :
+    x.status === "expiring-soon"  ? `· ${x.days} дни` :
+    x.status === "valid"          ? "· валиден" :
+                                    "";
+
+  const shownDate = (date && String(date).trim()) || "н/д";
+
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded ${cls}`}>
+      {label}: {shownDate} {statusShort}
+    </span>
+  );
 }
+
 
 function StatusDot({ busy }) {
   return (

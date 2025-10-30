@@ -1,5 +1,5 @@
 // src/features/drivers/drivers.store.jsx
-import React, { createContext, useContext, useEffect, useCallback, useState, useMemo } from "react";
+import React, { createContext, useContext, useEffect, useCallback, useState } from "react";
 import { db } from "@/firebase.js";
 import {
   collection,
@@ -16,32 +16,58 @@ import {
 const DriversCtx = createContext(null);
 const COL = "drivers";
 
-// нормализация: празна/липсваща фирма -> "SG"
-const normalizeCompany = (company) => {
-  const c = String(company || "").trim();
-  return c ? c : "SG";
+// dd.mm.yyyy -> yyyy-mm-dd
+const toISO = (bg) => {
+  if (!bg) return null;
+  const [dd, mm, yyyy] = String(bg).split(".");
+  if (!yyyy || !mm || !dd) return null;
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+// нормализация на драйвер
+const normalizeDriver = (raw = {}) => {
+  const name    = String(raw.name || "").trim();
+  const phone   = String(raw.phone || raw.contact || "").trim();
+  const company = (raw.company && String(raw.company).trim()) || "SG"; // празно => SG
+  const egn     = String(raw.egn || "").trim();
+
+  const tractor = String(raw.tractor || "").trim();
+  const tanker  = String(raw.tanker  || "").trim();
+
+  const driverCardExpiry = String(raw.driverCardExpiry || "").trim(); // dd.mm.yyyy
+  const adrExpiry        = String(raw.adrExpiry || "").trim();       // dd.mm.yyyy
+
+  const driverCardExpiryISO = toISO(driverCardExpiry);
+  const adrExpiryISO        = toISO(adrExpiry);
+
+  return {
+    name,
+    phone,
+    company,
+    egn,
+    tractor,
+    tanker,
+
+    // документи (шофьорска карта / ADR)
+    driverCardExpiry: driverCardExpiry || "",
+    driverCardExpiryISO: driverCardExpiryISO || null,
+
+    adrExpiry: adrExpiry || "",
+    adrExpiryISO: adrExpiryISO || null,
+  };
 };
 
 export function DriversProvider({ children }) {
-  // Държим състоянието само в React; данните идват live от Firestore
   const [drivers, setDrivers] = useState([]);
 
-  // Realtime четене от Firestore
+  // Realtime четене
   useEffect(() => {
+    // сортираме по име; ако името е еднакво, Firestore ще си реши по id
     const q = query(collection(db, COL), orderBy("name", "asc"));
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const rows = snap.docs.map((d) => {
-          const data = d.data() || {};
-          const company = normalizeCompany(data.company);
-          return {
-            id: d.id,
-            ...data,
-            company,
-            isSubcontractor: company !== "SG",
-          };
-        });
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         setDrivers(rows || []);
       },
       (err) => {
@@ -51,12 +77,11 @@ export function DriversProvider({ children }) {
     return () => unsub();
   }, []);
 
-  // Създай или обнови драйвер във Firestore
+  // Създай/обнови
   const upsert = useCallback(async (data) => {
     const payload = {
-      name: (data.name || "").trim(),
-      phone: (data.phone || "").trim(),
-      company: normalizeCompany(data.company),
+      ...normalizeDriver(data),
+      updatedAt: serverTimestamp(),
     };
 
     if (data.id) {
@@ -71,23 +96,16 @@ export function DriversProvider({ children }) {
     }
   }, []);
 
-  // Изтриване
+  // Изтрий
   const remove = useCallback(async (id) => {
     if (!id) return;
     await deleteDoc(doc(db, COL, id));
   }, []);
 
-  // Удобни селектори (без да чупят нищо)
-  const sgDrivers = useMemo(() => (drivers || []).filter(d => d.company === "SG"), [drivers]);
-  const subcontractors = useMemo(() => (drivers || []).filter(d => d.company !== "SG"), [drivers]);
-
   const api = {
-    list: drivers,        // съвместимо с текущия ти код
+    list: drivers,
     upsert,
     remove,
-    // опционално ползване:
-    sgDrivers,
-    subcontractors,
   };
 
   return <DriversCtx.Provider value={api}>{children}</DriversCtx.Provider>;

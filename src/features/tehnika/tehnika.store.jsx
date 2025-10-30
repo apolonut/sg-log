@@ -1,4 +1,4 @@
-// src/features/tehnika/tehnika.store.js
+// src/features/tehnika/tehnika.store.jsx
 import React, { createContext, useContext, useEffect, useCallback } from "react";
 import { useLocalStorage } from "@/shared/hooks/useLocalStorage";
 import { db } from "@/firebase.js";
@@ -26,7 +26,7 @@ const seedTankers = [
 const COL_TRUCKS = "trucks";
 const COL_TANKERS = "tankers";
 
-/** dd.mm.yyyy -> yyyy-mm-dd (за сортиране/филтри в Firestore) */
+/** dd.mm.yyyy -> yyyy-mm-dd (за сортиране/филтри във Firestore) */
 const toISO = (bg) => {
   if (!bg) return null;
   const [dd, mm, yyyy] = String(bg).split(".");
@@ -34,18 +34,34 @@ const toISO = (bg) => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-/** Нормализиране на запис (и за камиони, и за цистерни) */
+/** Нормализиране на запис (и за влекачи, и за цистерни) */
 const normalizeItem = (raw = {}, defType = "truck") => {
   const number = String(raw.number || "").trim();
   const type = String(raw.type || defType).trim();
-  const insuranceExpiry = String(raw.insuranceExpiry || "").trim();
-  const insuranceExpiryISO = toISO(insuranceExpiry);
+
+  const insuranceExpiry = String(raw.insuranceExpiry || raw.goExpiry || "").trim();
+  const adrExpiry        = String(raw.adrExpiry || "").trim();
+  const inspectionExpiry = String(raw.inspectionExpiry || raw.techExpiry || "").trim();
+
+  const insuranceExpiryISO  = toISO(insuranceExpiry);
+  const adrExpiryISO        = toISO(adrExpiry);
+  const inspectionExpiryISO = toISO(inspectionExpiry);
 
   return {
     number,
     type,
+
+    // ГО / ADR / Преглед
     insuranceExpiry: insuranceExpiry || "",
     insuranceExpiryISO: insuranceExpiryISO || null,
+
+    adrExpiry: adrExpiry || "",
+    adrExpiryISO: adrExpiryISO || null,
+
+    inspectionExpiry: inspectionExpiry || "",
+    inspectionExpiryISO: inspectionExpiryISO || null,
+
+    // доп. полета (ако решиш да ги ползваш по-нататък)
     brand: String(raw.brand || "").trim(),
     model: String(raw.model || "").trim(),
     year: raw.year || "",
